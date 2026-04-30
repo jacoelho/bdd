@@ -34,7 +34,6 @@ func Outline[S any, E any](
 
 		outlineScope := &scope{t: t, meta: m}
 		for _, example := range examples {
-			example := example
 			spec := suite.newSpec()
 			build(example.Value, spec)
 			runScenario(outlineScope, example.Name, suite.newState, spec, example.Opts...)

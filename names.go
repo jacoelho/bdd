@@ -48,13 +48,7 @@ func appendTags(existing []string, tags ...string) []string {
 		if tag == "" {
 			continue
 		}
-		seen := false
-		for _, current := range out {
-			if current == tag {
-				seen = true
-				break
-			}
-		}
+		seen := slices.Contains(out, tag)
 		if !seen {
 			out = append(out, tag)
 		}
