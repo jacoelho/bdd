@@ -1,29 +1,18 @@
 package bdd
 
-import (
-	"os"
-	"os/exec"
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestOutlineRequiresExamples(t *testing.T) {
-	if os.Getenv("BDD_EMPTY_OUTLINE_SUBPROCESS") == "1" {
-		Feature(t, "outline validation", NewNoState, func(f *Suite[NoState]) {
-			Outline(f, "empty table", []Example[int]{}, func(int, *ScenarioSpec[NoState]) {})
-		})
-		return
-	}
+	var tbb fatalRecorder
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestOutlineRequiresExamples$")
-	cmd.Env = append(os.Environ(), "BDD_EMPTY_OUTLINE_SUBPROCESS=1")
-
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("empty outline unexpectedly passed:\n%s", out)
+	if hasOutlineExamples[int](&tbb, nil) {
+		t.Fatal("empty examples unexpectedly passed")
 	}
-	if got := string(out); !strings.Contains(got, "index out of range") {
-		t.Fatalf("output missing empty outline failure:\n%s", got)
+	if !tbb.failed {
+		t.Fatal("empty examples did not fail")
+	}
+	if got := tbb.args[0]; got != "bdd: outline requires at least one example" {
+		t.Fatalf("fatal message = %q; want outline requires examples", got)
 	}
 }
 
@@ -34,4 +23,16 @@ func TestOutlineNameIncludesKindTagsAndCleanName(t *testing.T) {
 	if name != want {
 		t.Fatalf("outlineName() = %q; want %q", name, want)
 	}
+}
+
+type fatalRecorder struct {
+	failed bool
+	args   []any
+}
+
+func (f *fatalRecorder) Helper() {}
+
+func (f *fatalRecorder) Fatal(args ...any) {
+	f.failed = true
+	f.args = args
 }
