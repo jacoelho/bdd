@@ -6,7 +6,15 @@ import (
 )
 
 // Option customizes a feature, rule, scenario, or outline.
-type Option func(*meta)
+type Option interface {
+	apply(*meta)
+}
+
+type optionFunc func(*meta)
+
+func (f optionFunc) apply(m *meta) {
+	f(m)
+}
 
 type meta struct {
 	tags          []string
@@ -20,26 +28,26 @@ type meta struct {
 // children and added to generated test names as @tag, so ordinary go test -run
 // filtering can select them.
 func Tags(tags ...string) Option {
-	return func(m *meta) {
+	return optionFunc(func(m *meta) {
 		m.tags = appendTags(m.tags, tags...)
-	}
+	})
 }
 
 // Skip marks a feature, rule, scenario, or outline as skipped.
 func Skip(reason string) Option {
-	return func(m *meta) {
+	return optionFunc(func(m *meta) {
 		m.skipSet = true
 		m.skipReason = strings.TrimSpace(reason)
-	}
+	})
 }
 
 // Pending marks a feature, rule, scenario, or outline as pending. Pending nodes
 // are represented as skipped tests by Go's testing package.
 func Pending(reason string) Option {
-	return func(m *meta) {
+	return optionFunc(func(m *meta) {
 		m.pendingSet = true
 		m.pendingReason = strings.TrimSpace(reason)
-	}
+	})
 }
 
 func (m meta) with(opts ...Option) meta {
@@ -52,7 +60,7 @@ func (m meta) with(opts ...Option) meta {
 	}
 	for _, opt := range opts {
 		if opt != nil {
-			opt(&next)
+			opt.apply(&next)
 		}
 	}
 	return next

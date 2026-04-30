@@ -42,8 +42,11 @@ func Noop[S any]() Step[S] {
 func Compose[S any](steps ...Step[S]) Step[S] {
 	return func(t testing.TB, state S) {
 		t.Helper()
-		for i := 0; !t.Failed() && !t.Skipped() && i < len(steps); i++ {
-			steps[i](t, state)
+		for _, step := range steps {
+			step(t, state)
+			if t.Failed() || t.Skipped() {
+				return
+			}
 		}
 	}
 }

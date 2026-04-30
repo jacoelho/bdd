@@ -30,27 +30,15 @@ func Outline[S any, E any](
 		if msg := m.skipMessage(); msg != "" {
 			t.Skip(msg)
 		}
-		if hasOutlineExamples(t, examples) {
-			outlineScope := &scope{t: t, meta: m}
-			for _, example := range examples {
-				spec := suite.newSpec()
-				build(example.Value, spec)
-				runScenario(outlineScope, example.Name, suite.newState, spec, example.Opts...)
-			}
+		if len(examples) == 0 {
+			t.Fatal("bdd: outline requires at least one example")
+		}
+
+		outlineScope := &scope{t: t, meta: m}
+		for _, example := range examples {
+			spec := suite.newSpec()
+			build(example.Value, spec)
+			runScenario(outlineScope, example.Name, suite.newState, spec, example.Opts...)
 		}
 	})
-}
-
-type fataler interface {
-	Helper()
-	Fatal(args ...any)
-}
-
-func hasOutlineExamples[E any](t fataler, examples []Example[E]) bool {
-	t.Helper()
-	if len(examples) > 0 {
-		return true
-	}
-	t.Fatal("bdd: outline requires at least one example")
-	return false
 }
