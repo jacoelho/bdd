@@ -28,8 +28,9 @@ func (s *ScenarioSpec[S]) Tags(tags ...string) {
 }
 
 // Background adds a visible narrative setup step.
-func (s *ScenarioSpec[S]) Background(text string, fn Step[S]) {
+func (s *ScenarioSpec[S]) Background(text string, fn Step[S]) *stepChain[S] {
 	s.background = append(s.background, newStep(kindBackground, text, fn))
+	return &stepChain[S]{steps: &s.background}
 }
 
 // Before registers a hidden setup hook. Prefer Background when the setup is
@@ -38,29 +39,24 @@ func (s *ScenarioSpec[S]) Before(fn Step[S]) {
 	s.before = append(s.before, fn)
 }
 
-func (s *ScenarioSpec[S]) Given(text string, fn Step[S]) {
+func (s *ScenarioSpec[S]) Given(text string, fn Step[S]) *stepChain[S] {
 	s.steps = append(s.steps, newStep(kindGiven, text, fn))
+	return &stepChain[S]{steps: &s.steps}
 }
 
-func (s *ScenarioSpec[S]) When(text string, fn Step[S]) {
+func (s *ScenarioSpec[S]) When(text string, fn Step[S]) *stepChain[S] {
 	s.steps = append(s.steps, newStep(kindWhen, text, fn))
+	return &stepChain[S]{steps: &s.steps}
 }
 
-func (s *ScenarioSpec[S]) Then(text string, fn Step[S]) {
+func (s *ScenarioSpec[S]) Then(text string, fn Step[S]) *stepChain[S] {
 	s.steps = append(s.steps, newStep(kindThen, text, fn))
-}
-
-func (s *ScenarioSpec[S]) And(text string, fn Step[S]) {
-	s.steps = append(s.steps, newStep(kindAnd, text, fn))
-}
-
-func (s *ScenarioSpec[S]) But(text string, fn Step[S]) {
-	s.steps = append(s.steps, newStep(kindBut, text, fn))
+	return &stepChain[S]{steps: &s.steps}
 }
 
 // Pending adds a pending visible step. The scenario is reported as skipped and
 // following steps do not run.
-func (s *ScenarioSpec[S]) Pending(text, reason string) {
+func (s *ScenarioSpec[S]) Pending(text, reason string) *stepChain[S] {
 	s.steps = append(s.steps, newStep(kindPending, text, func(t testing.TB, _ S) {
 		t.Helper()
 		if reason == "" {
@@ -68,6 +64,25 @@ func (s *ScenarioSpec[S]) Pending(text, reason string) {
 		}
 		t.Skip("pending: " + reason)
 	}))
+	return &stepChain[S]{steps: &s.steps}
+}
+
+type stepChain[S any] struct {
+	steps *[]step[S]
+}
+
+func (c *stepChain[S]) And(text string, fn Step[S]) *stepChain[S] {
+	c.append(kindAnd, text, fn)
+	return c
+}
+
+func (c *stepChain[S]) But(text string, fn Step[S]) *stepChain[S] {
+	c.append(kindBut, text, fn)
+	return c
+}
+
+func (c *stepChain[S]) append(kind stepKind, text string, fn Step[S]) {
+	*c.steps = append(*c.steps, newStep(kind, text, fn))
 }
 
 func runScenario[S any](scope *scope, name string, newState StateFactory[S], spec *ScenarioSpec[S], opts ...Option) {

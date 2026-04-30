@@ -11,8 +11,8 @@ func TestReusableSteps(t *testing.T) {
 		f.Scenario("service responds", func(s *bdd.ScenarioSpec[bdd.NoState]) {
 			s.Given("the service is running", serviceIsRunning())
 			s.When("the health endpoint is requested", healthEndpointRequested())
-			s.Then("the response is healthy", responseIsHealthy())
-			s.And("the status is reported", statusIsReported())
+			s.Then("the response is healthy", responseIsHealthy()).
+				And("the status is reported", statusIsReported())
 		})
 	})
 }
