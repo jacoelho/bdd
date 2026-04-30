@@ -30,7 +30,9 @@ func Outline[S any, E any](
 		if msg := m.skipMessage(); msg != "" {
 			t.Skip(msg)
 		}
-		_ = examples[0]
+		if len(examples) == 0 {
+			t.Fatal("bdd: outline requires at least one example")
+		}
 
 		outlineScope := &scope{t: t, meta: m}
 		for _, example := range examples {

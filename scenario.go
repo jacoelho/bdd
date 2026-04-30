@@ -112,15 +112,15 @@ func runVisibleStep[S any](parent *testing.T, st step[S], state S) stepResult {
 
 func runSteps[S any](t *testing.T, state S, groups ...[]step[S]) {
 	t.Helper()
-	ok := true
 	for _, steps := range groups {
-		for i := 0; ok && i < len(steps); i++ {
-			st := steps[i]
+		for _, st := range steps {
 			result := runVisibleStep(t, st, state)
 			if result.skipped {
 				t.SkipNow()
 			}
-			ok = result.ok
+			if !result.ok {
+				return
+			}
 		}
 	}
 }

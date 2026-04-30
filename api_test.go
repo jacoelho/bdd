@@ -1,13 +1,15 @@
 package bdd
 
 import (
+	"os"
+	"os/exec"
 	"reflect"
+	"strings"
 	"testing"
 )
 
 func TestOptionFormattingAndSkipMessages(t *testing.T) {
-	var m meta
-	Tags("@fast", "login flow", "", "fast")(&m)
+	m := meta{}.with(Tags("@fast", "login flow", "", "fast"))
 	if !reflect.DeepEqual(m.tags, []string{"fast", "login-flow"}) {
 		t.Fatalf("tags = %#v; want fast/login-flow", m.tags)
 	}
@@ -168,5 +170,35 @@ func TestParallelScenario(t *testing.T) {
 
 	if !ran {
 		t.Fatal("parallel scenario did not run")
+	}
+}
+
+func TestComposeStopsAfterFailedStep(t *testing.T) {
+	if os.Getenv("BDD_COMPOSE_FAIL_SUBPROCESS") == "1" {
+		step := Compose(
+			func(t testing.TB, _ NoState) {
+				t.Fatal("stop")
+			},
+			func(t testing.TB, _ NoState) {
+				t.Fatal("second step ran")
+			},
+		)
+		step(t, NoState{})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestComposeStopsAfterFailedStep$")
+	cmd.Env = append(os.Environ(), "BDD_COMPOSE_FAIL_SUBPROCESS=1")
+
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("failing composed step unexpectedly passed:\n%s", out)
+	}
+	got := string(out)
+	if !strings.Contains(got, "stop") {
+		t.Fatalf("output missing first step failure:\n%s", got)
+	}
+	if strings.Contains(got, "second step ran") {
+		t.Fatalf("composed step continued after failure:\n%s", got)
 	}
 }

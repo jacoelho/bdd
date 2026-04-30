@@ -22,7 +22,7 @@ func TestOutlineRequiresExamples(t *testing.T) {
 	if err == nil {
 		t.Fatalf("empty outline unexpectedly passed:\n%s", out)
 	}
-	if got := string(out); !strings.Contains(got, "index out of range") {
+	if got := string(out); !strings.Contains(got, "bdd: outline requires at least one example") {
 		t.Fatalf("output missing empty outline failure:\n%s", got)
 	}
 }
