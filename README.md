@@ -142,11 +142,12 @@ func premiumCustomer(email string) bdd.Step[*cartWorld] {
 `When`, and `Then`.
 
 ```go
-s.When("checkout starts", startCheckout())
-s.And("payment is authorized", authorizePayment())
-s.Then("the order is created", orderIsCreated())
-s.And("a receipt is sent", receiptIsSent())
-s.But("no duplicate order is created", noDuplicateOrder())
+s.When("checkout starts", startCheckout()).
+	And("payment is authorized", authorizePayment())
+
+s.Then("the order is created", orderIsCreated()).
+	And("a receipt is sent", receiptIsSent()).
+	But("no duplicate order is created", noDuplicateOrder())
 ```
 
 ## 7. Use Outlines

@@ -64,8 +64,7 @@ func TestSuiteGroupingAndScenarioAPI(t *testing.T) {
 					})
 					s.Given("a condition", func(t testing.TB, _ NoState) {
 						given = true
-					})
-					s.But("an exception", func(t testing.TB, _ NoState) {
+					}).But("an exception", func(t testing.TB, _ NoState) {
 						but = true
 					})
 				})
@@ -75,6 +74,51 @@ func TestSuiteGroupingAndScenarioAPI(t *testing.T) {
 
 	if !before || !background || !given || !but {
 		t.Fatalf("steps ran: before=%v background=%v given=%v but=%v", before, background, given, but)
+	}
+}
+
+func TestScenarioSpecChainsVisibleSteps(t *testing.T) {
+	spec := &ScenarioSpec[NoState]{}
+	chain := spec.Given("given", Noop[NoState]()).
+		And("and", Noop[NoState]()).
+		But("but", Noop[NoState]())
+	spec.When("when", Noop[NoState]())
+	spec.Then("then", Noop[NoState]())
+	spec.Pending("pending", "blocked")
+
+	if chain.steps != &spec.steps {
+		t.Fatal("chain did not target scenario steps")
+	}
+
+	got := []stepKind{}
+	for _, step := range spec.steps {
+		got = append(got, step.kind)
+	}
+	want := []stepKind{kindGiven, kindAnd, kindBut, kindWhen, kindThen, kindPending}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("steps = %#v; want %#v", got, want)
+	}
+}
+
+func TestBackgroundChainKeepsContinuationsInBackground(t *testing.T) {
+	var ran []string
+
+	Feature(t, "background chain", NewNoState, func(f *Suite[NoState]) {
+		f.Scenario("scenario", func(s *ScenarioSpec[NoState]) {
+			s.Background("background", func(t testing.TB, _ NoState) {
+				ran = append(ran, "background")
+			}).And("background continuation", func(t testing.TB, _ NoState) {
+				ran = append(ran, "background and")
+			})
+			s.Given("scenario step", func(t testing.TB, _ NoState) {
+				ran = append(ran, "given")
+			})
+		})
+	})
+
+	want := []string{"background", "background and", "given"}
+	if !reflect.DeepEqual(ran, want) {
+		t.Fatalf("ran = %#v; want %#v", ran, want)
 	}
 }
 
