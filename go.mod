@@ -1,0 +1,3 @@
+module github.com/jacoelho/bdd
+
+go 1.26.2
