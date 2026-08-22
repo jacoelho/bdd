@@ -1,76 +1,51 @@
 package bdd
 
-import "testing"
+import (
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+)
 
-func TestPendingStepSkipsFollowingSteps(t *testing.T) {
-	var ran bool
-
-	Feature(t, "pending scenario", NewNoState, func(f *Suite[NoState]) {
-		f.Scenario("stops after pending step", func(s *ScenarioSpec[NoState]) {
-			s.Pending("implementation is missing", "not built yet")
-			s.Then("following steps do not run", func(t testing.TB, _ NoState) {
-				ran = true
+func TestPendingStepReportsTerminalSkip(t *testing.T) {
+	if os.Getenv("BDD_PENDING_STEP_SUBPROCESS") == "1" {
+		Feature(t, "pending scenario", NewNoState, func(f *Suite[NoState]) {
+			f.Scenario("stops after pending step", func(s *ScenarioSpec[NoState]) {
+				s.Pending("implementation is missing", "not built yet")
 			})
 		})
-	})
+		return
+	}
 
-	if ran {
-		t.Fatal("step after pending ran")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestPendingStepReportsTerminalSkip$", "-test.v")
+	cmd.Env = append(os.Environ(), "BDD_PENDING_STEP_SUBPROCESS=1")
+	out, err := cmd.CombinedOutput()
+	text := string(out)
+	path := "TestPendingStepReportsTerminalSkip/feature-pending-scenario/scenario-stops-after-pending-step"
+	if err != nil || !strings.Contains(text, "Pending: implementation is missing") || !strings.Contains(text, "pending: not built yet") || !strings.Contains(text, "--- SKIP: "+path) || strings.Contains(text, "FAIL: "+path) {
+		t.Fatalf("pending step result = %v, output:\n%s", err, out)
 	}
 }
 
-func TestPendingStepWithoutReasonSkipsFollowingSteps(t *testing.T) {
-	var ran bool
-
-	Feature(t, "pending scenario without reason", NewNoState, func(f *Suite[NoState]) {
-		f.Scenario("stops after pending step", func(s *ScenarioSpec[NoState]) {
-			s.Pending("implementation is missing", "")
-			s.Then("following steps do not run", func(t testing.TB, _ NoState) {
-				ran = true
+func TestPendingStepMutationFailsBeforeSetup(t *testing.T) {
+	if os.Getenv("BDD_PENDING_MUTATION_SUBPROCESS") == "1" {
+		Feature(t, "pending mutation", func(t testing.TB) NoState {
+			t.Fatal("setup ran after invalid Pending mutation")
+			return NoState{}
+		}, func(f *Suite[NoState]) {
+			f.Scenario("terminal", func(s *ScenarioSpec[NoState]) {
+				s.Pending("not implemented", "waiting")
+				s.Then("must be rejected", func(testing.TB, NoState) {})
 			})
 		})
-	})
-
-	if ran {
-		t.Fatal("step after pending ran")
-	}
-}
-
-func TestStateFactoryCanUseScenarioCleanupAndContext(t *testing.T) {
-	type world struct {
-		contextLive bool
-		cleaned     *bool
+		return
 	}
 
-	var cleaned, canceledBeforeCleanup bool
-
-	Feature(t, "scenario cleanup", func(t testing.TB) *world {
-		ctx := t.Context()
-		t.Cleanup(func() {
-			canceledBeforeCleanup = ctx.Err() != nil
-			cleaned = true
-		})
-		return &world{
-			contextLive: ctx.Err() == nil,
-			cleaned:     &cleaned,
-		}
-	}, func(f *Suite[*world]) {
-		f.Scenario("state factory owns scenario resources", func(s *ScenarioSpec[*world]) {
-			s.Then("scenario context is available", func(t testing.TB, w *world) {
-				if !w.contextLive {
-					t.Fatal("context was canceled before scenario ran")
-				}
-				if *w.cleaned {
-					t.Fatal("cleanup ran before scenario completed")
-				}
-			})
-		})
-	})
-
-	if !cleaned {
-		t.Fatal("scenario cleanup did not run")
-	}
-	if !canceledBeforeCleanup {
-		t.Fatal("scenario context was not canceled before cleanup")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestPendingStepMutationFailsBeforeSetup$")
+	cmd.Env = append(os.Environ(), "BDD_PENDING_MUTATION_SUBPROCESS=1")
+	out, err := cmd.CombinedOutput()
+	text := string(out)
+	if err == nil || !strings.Contains(text, "no operations may follow Pending") || strings.Contains(text, "setup ran after") {
+		t.Fatalf("Pending mutation result = %v, output:\n%s", err, out)
 	}
 }

@@ -2,10 +2,6 @@ package bdd
 
 import "testing"
 
-// StateFactory creates a fresh scenario state. In most suites S is a pointer to
-// a domain-specific World type, for example *checkoutbdd.World.
-type StateFactory[S any] func(t testing.TB) S
-
 // Step is a reusable operation or assertion against a scenario state.
 type Step[S any] func(t testing.TB, state S)
 
@@ -30,19 +26,18 @@ func NewNoState(t testing.TB) NoState {
 	return NoState{}
 }
 
-// Noop is a step that deliberately does nothing.
-func Noop[S any]() Step[S] {
-	return func(t testing.TB, _ S) {
-		t.Helper()
-	}
-}
-
 // Compose returns one step from many smaller steps. It is useful for reusable
 // domain fixtures such as LoggedInPremiumCustomer().
 func Compose[S any](steps ...Step[S]) Step[S] {
 	return func(t testing.TB, state S) {
 		t.Helper()
+		if len(steps) == 0 {
+			t.Fatal("bdd: Compose requires at least one step")
+		}
 		for _, step := range steps {
+			if step == nil {
+				t.Fatal("bdd: Compose received a nil step")
+			}
 			step(t, state)
 			if t.Failed() || t.Skipped() {
 				return

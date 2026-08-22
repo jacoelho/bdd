@@ -62,7 +62,6 @@ func price(sku string, qty int) int {
 
 func TestCartPricing(t *testing.T) {
 	bdd.Feature(t, "cart pricing", newCartWorld, func(f *bdd.Suite[*cartWorld]) {
-		f.Tags("unit")
 		f.Background("an empty cart", emptyCart())
 
 		f.Rule("bulk discounts are applied", func(r *bdd.Suite[*cartWorld]) {
@@ -72,7 +71,7 @@ func TestCartPricing(t *testing.T) {
 				s.Then("the total includes the discount", totalIs(2700))
 			})
 		})
-	})
+	}, bdd.Tags("unit"))
 }
 
 type passwordWorld struct {
@@ -120,7 +119,7 @@ func TestPasswordStrength(t *testing.T) {
 	}
 
 	bdd.Feature(t, "password strength", newPasswordWorld, func(f *bdd.Suite[*passwordWorld]) {
-		bdd.Outline(f, "length-based strength", cases, func(tc passwordCase, s *bdd.ScenarioSpec[*passwordWorld]) {
+		f.Outline("length-based strength", cases, func(tc passwordCase, s *bdd.ScenarioSpec[*passwordWorld]) {
 			s.Given(fmt.Sprintf("the password is %q", tc.password), passwordIs(tc.password))
 			s.When("the password is evaluated", passwordIsEvaluated())
 			s.Then("the expected strength is returned", strengthIs(tc.want))

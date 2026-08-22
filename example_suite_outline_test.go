@@ -57,13 +57,12 @@ func TestOutline(t *testing.T) {
 	}
 
 	bdd.Feature(t, "shipping availability", newShippingWorld, func(f *bdd.Suite[*shippingWorld]) {
-		f.Tags("unit")
 		f.Background("a stocked warehouse", stockedWarehouse())
 
-		bdd.Outline(f, "stock controls shipping", examples, func(tc row, s *bdd.ScenarioSpec[*shippingWorld]) {
+		f.Outline("stock controls shipping", examples, func(tc row, s *bdd.ScenarioSpec[*shippingWorld]) {
 			s.Given("a customer selects the item", skuIs(tc.sku))
 			s.When("shipping availability is checked", availabilityIsChecked())
 			s.Then("the shipping decision is returned", shippingAllowed(tc.want))
 		})
-	})
+	}, bdd.Tags("unit"))
 }

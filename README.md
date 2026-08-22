@@ -1,33 +1,21 @@
 # bdd
 
-Go-native BDD helpers over `testing`.
+Go-native BDD helpers over `testing`. Features are declared with typed Go
+closures, while Go's test runner remains the execution and selection engine.
 
-Tests still run with `go test`. Features, rules, contexts, scenarios, and steps
-are subtests. Step functions receive `testing.TB`, so normal Go assertions,
-helpers, cleanup, temp dirs, and contexts keep working.
-
-## Install
+Requires Go 1.27 or newer:
 
 ```sh
 go get github.com/jacoelho/bdd
 ```
 
-Requires Go 1.26.2 or newer.
+## A feature
 
-## 1. Write a Feature
-
-A feature owns a typed scenario state. Each scenario gets a fresh state from the
-state factory.
+`Feature` takes a per-scenario setup callback. The callback receives the
+scenario's `testing.TB`, so resources registered with `Cleanup`, `TempDir`, or
+`Context` belong to that scenario.
 
 ```go
-package checkout_test
-
-import (
-	"testing"
-
-	"github.com/jacoelho/bdd"
-)
-
 type cartWorld struct {
 	items map[string]int
 	total int
@@ -47,15 +35,20 @@ func TestCartPricing(t *testing.T) {
 }
 ```
 
-Run it:
+The generated hierarchy is exactly:
 
-```sh
-go test ./...
+```text
+TestCartPricing/feature-cart-pricing/scenario-item-total-is-calculated
 ```
 
-## 2. Move Mechanics into Steps
+The Feature is the only grouping subtest. Each scenario or outline example is
+one direct child; steps do not create subtests. This makes a scenario atomic
+for `go test -run`, and lets every step use the same scenario context and
+cleanup lifetime.
 
-Steps are plain Go functions returning `bdd.Step[S]`.
+## Steps and shared setup
+
+Steps are ordinary typed functions:
 
 ```go
 func customerAdds(sku string, qty int) bdd.Step[*cartWorld] {
@@ -74,207 +67,209 @@ func totalIs(want int) bdd.Step[*cartWorld] {
 }
 ```
 
-Keep scenario text readable. Put setup, actions, and assertions in reusable
-steps.
-
-## 3. Share Setup with Background
-
-Use `Background` when setup is part of the story.
-
-```go
-func emptyCart() bdd.Step[*cartWorld] {
-	return func(t testing.TB, w *cartWorld) {
-		w.items = make(map[string]int)
-	}
-}
-
-func TestCartPricing(t *testing.T) {
-	bdd.Feature(t, "cart pricing", newCartWorld, func(f *bdd.Suite[*cartWorld]) {
-		f.Background("an empty cart", emptyCart())
-
-		f.Scenario("item total is calculated", func(s *bdd.ScenarioSpec[*cartWorld]) {
-			s.When("the customer adds two books", customerAdds("book", 2))
-			s.Then("the total is updated", totalIs(200))
-		})
-	})
-}
-```
-
-Use `Before` for hidden setup that is not part of the behavior description.
-
-## 4. Group Scenarios
-
-Use `Rule` and `Context` to organize scenarios. Backgrounds, `Before` hooks, and
-tags are inherited by nested groups.
-
-```go
-func TestCartPricing(t *testing.T) {
-	bdd.Feature(t, "cart pricing", newCartWorld, func(f *bdd.Suite[*cartWorld]) {
-		f.Background("an empty cart", emptyCart())
-
-		f.Rule("bulk discounts are applied", func(r *bdd.Suite[*cartWorld]) {
-			r.Scenario("third book receives a discount", func(s *bdd.ScenarioSpec[*cartWorld]) {
-				s.Given("a logged-in premium customer", premiumCustomer("ada@example.com"))
-				s.When("the customer adds three books", customerAdds("book", 3))
-				s.Then("the total includes the discount", totalIs(2700))
-			})
-		})
-	})
-}
-```
-
-## 5. Compose Steps
-
-Use `Compose` when one domain phrase should run several smaller steps.
-
-```go
-func premiumCustomer(email string) bdd.Step[*cartWorld] {
-	return bdd.Compose(
-		loggedInCustomer(email),
-		emptyCart(),
-	)
-}
-```
-
-## 6. Use And and But
-
-`And` and `But` are labels. They run the same kind of step function as `Given`,
-`When`, and `Then`.
-
-```go
-s.When("checkout starts", startCheckout()).
-	And("payment is authorized", authorizePayment())
-
-s.Then("the order is created", orderIsCreated()).
-	And("a receipt is sent", receiptIsSent()).
-	But("no duplicate order is created", noDuplicateOrder())
-```
-
-## 7. Use Outlines
-
-Use `Outline` for table-driven scenarios. `Outline` is a function, not a method,
-because Go methods cannot add an extra type parameter for the row type.
-
-```go
-func TestPasswordStrength(t *testing.T) {
-	type world struct {
-		password string
-		got      string
-	}
-
-	type row struct {
-		password string
-		want     string
-	}
-
-	cases := []bdd.Example[row]{
-		bdd.Case("short passwords are weak", row{"abc", "weak"}),
-		bdd.Case("long passwords are strong", row{"correct-horse", "strong"}),
-	}
-
-	bdd.Feature(t, "password strength", func(t testing.TB) *world {
-		return &world{}
-	}, func(f *bdd.Suite[*world]) {
-		bdd.Outline(f, "length-based strength", cases, func(tc row, s *bdd.ScenarioSpec[*world]) {
-			s.Given("a password", func(t testing.TB, w *world) {
-				w.password = tc.password
-			})
-			s.When("the password is evaluated", func(t testing.TB, w *world) {
-				if len(w.password) >= 12 {
-					w.got = "strong"
-				} else {
-					w.got = "weak"
-				}
-			})
-			s.Then("the expected strength is returned", func(t testing.TB, w *world) {
-				if w.got != tc.want {
-					t.Fatalf("strength = %s; want %s", w.got, tc.want)
-				}
-			})
-		})
-	})
-}
-```
-
-Each case becomes one scenario. Case options apply to that scenario:
-
-```go
-bdd.Case("not implemented yet", row{"", "weak"}, bdd.Pending("policy undecided"))
-```
-
-## 8. Tag, Skip, and Mark Pending
-
-Tags are added to generated test names as `@tag`, so `go test -run` works.
+Use `Before` for hidden setup and `Background` for setup that belongs in the
+behavior narrative. `Background` continuations are direct `And` and `But`
+methods on the Suite:
 
 ```go
 bdd.Feature(t, "cart pricing", newCartWorld, func(f *bdd.Suite[*cartWorld]) {
-	f.Tags("unit")
-	f.Scenario("discounts apply", func(s *bdd.ScenarioSpec[*cartWorld]) {
-		// ...
-	}, bdd.Tags("pricing"))
+	f.Before(loadCatalog())
+	f.Background("an empty cart", emptyCart())
+	f.And("inventory is available", inventoryAvailable())
+	f.Scenario("item total is calculated", func(s *bdd.ScenarioSpec[*cartWorld]) {
+		s.When("the customer adds two books", customerAdds("book", 2))
+		s.Then("the total is updated", totalIs(200))
+	})
 })
 ```
 
-```sh
-go test ./... -run '@unit'
-go test ./... -run '@pricing'
-```
+Scenario `Before` hooks are hidden. Scenario `Given`, `When`, `Then`, `And`,
+and `But` operations are visible and run in declaration order. `And` and `But`
+require a preceding visible clause. A `Pending(text, reason)` operation is
+terminal and requires a reason.
 
-Use `bdd.Skip(reason)` or `bdd.Pending(reason)` on features, rules, contexts,
-scenarios, outlines, or cases. Pending nodes are reported as skipped tests.
+## Rules and contexts
 
-Use `s.Pending(text, reason)` inside a scenario when a specific step is pending
-and following steps should not run.
-
-## 9. Use Cleanup and Context
-
-State factories and steps receive `testing.TB`.
-
-Create scenario-lifetime resources in the state factory:
+Rules and Contexts are logical breadcrumbs. They inherit hooks, Background
+operations, and tags but do not add testing subtests:
 
 ```go
-type world struct {
-	ctx       context.Context
-	serverURL string
-}
-
-func newWorld(t testing.TB) *world {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	t.Cleanup(server.Close)
-
-	return &world{
-		ctx:       t.Context(),
-		serverURL: server.URL,
-	}
-}
-```
-
-Use step `t.Context()` for work scoped to that visible step.
-
-Visible steps run as subtests. A context from a step is canceled when that step
-ends. A context from the state factory lives until the scenario ends and is
-canceled just before scenario cleanup functions run.
-
-## 10. No State
-
-Use `bdd.NoState` when a feature does not need shared scenario state.
-
-```go
-func TestAPIHealth(t *testing.T) {
-	bdd.Feature(t, "API health", bdd.NewNoState, func(f *bdd.Suite[bdd.NoState]) {
-		f.Scenario("service responds", func(s *bdd.ScenarioSpec[bdd.NoState]) {
-			s.Given("the service is running", bdd.Noop[bdd.NoState]())
-			s.When("the health endpoint is requested", bdd.Noop[bdd.NoState]())
-			s.Then("the response is healthy", bdd.Noop[bdd.NoState]())
+bdd.Feature(t, "cart pricing", newCartWorld, func(f *bdd.Suite[*cartWorld]) {
+	f.Rule("bulk discounts are applied", func(r *bdd.Suite[*cartWorld]) {
+		r.Context("premium customer", func(c *bdd.Suite[*cartWorld]) {
+			c.Scenario("third book receives a discount", func(s *bdd.ScenarioSpec[*cartWorld]) {
+				s.Given("a premium customer", premiumCustomer())
+				s.Then("the discount is applied", totalIs(2700))
+			})
 		})
 	})
-}
+})
 ```
 
-## Notes
+The leaf name includes the breadcrumbs:
 
-- Nil step functions fail when the step runs.
-- Empty outline example tables fail the outline test.
-- Call `s.Parallel()` only when scenario state and dependencies are isolated.
+```text
+TestCartPricing/feature-cart-pricing/rule-bulk-discounts-are-applied__context-premium-customer__scenario-third-book-receives-a-discount
+```
+
+## Outlines
+
+`Suite.Outline[E]` keeps the example row type at the call site:
+
+```go
+type row struct {
+	password string
+	want     string
+}
+
+cases := []bdd.Example[row]{
+	bdd.Case("short passwords are weak", row{"abc", "weak"}),
+	bdd.Case("long passwords are strong", row{"correct-horse", "strong"}),
+}
+
+bdd.Feature(t, "password strength", newPasswordWorld, func(f *bdd.Suite[*passwordWorld]) {
+	f.Outline("length-based strength", cases, func(tc row, s *bdd.ScenarioSpec[*passwordWorld]) {
+		s.Given("the password is known", passwordIs(tc.password))
+		s.Then("the expected strength is returned", strengthIs(tc.want))
+	})
+})
+```
+
+Each example is one direct child named:
+
+```text
+feature-password-strength/outline-length-based-strength__example-short-passwords-are-weak
+```
+
+`Case` copies its option slice. The row value is shallow-copied, so reference
+fields remain owned by the caller. An example's `Skip` or `Pending` option
+overrides the outline disposition.
+
+Structured data stays ordinary typed Go data. Use a typed slice for table-like
+inputs and a raw string when the behavior under test is a JSON document:
+
+```go
+type priceRow struct {
+	SKU   string
+	Cents int
+}
+
+rows := []priceRow{{SKU: "book", Cents: 1200}}
+s.Given("these prices exist", seedPrices(rows))
+s.When("the JSON request is submitted", submitJSON(`{"sku":"book","quantity":2}`))
+```
+
+## Tags, skip, and pending
+
+Tags omit `@`, accept Unicode letters, numbers, combining marks, and hyphenated
+segments, and are inherited by descendants:
+
+```go
+bdd.Feature(t, "Café pricing", newCartWorld, func(f *bdd.Suite[*cartWorld]) {
+	f.Scenario("remise appliquée", scenarioBody, bdd.Tags("café", "unit"))
+}, bdd.Tags("checkout"))
+```
+
+The generated leaf preserves printable UTF-8:
+
+```text
+@café_@checkout__scenario-remise-appliquée
+```
+
+Tags are present only in the third (scenario/example) path component; Feature
+and logical Rule/Context components never contain tag prefixes.
+
+Names and tags are lowercased by rune, but are not Unicode-normalized. A slash
+is replaced because Go treats slash as a subtest path separator. Whitespace,
+punctuation, symbols, and controls become one `-` separator; separator-only
+names are invalid.
+
+Select a tag through standard Go filtering:
+
+```sh
+go test ./... -run='//(^|_)@unit(_|$)'
+go test ./... -run='//(^|_)@café(_|$)'
+```
+
+`-run` still executes matching top-level Go test bodies while they discover
+descendants. An unselected BDD leaf does not run its scenario builder, setup,
+hooks, Background, or steps. Standard Go behavior applies when nothing
+matches: the command exits successfully with status 0. For isolation, keep
+BDD features in BDD-only packages or select the exact top-level test as well:
+
+```sh
+go test ./cart -run='^TestCartPricing$/^feature-cart-pricing$/^@unit__rule-bulk-discounts-are-applied__scenario-third-book-receives-a-discount$'
+```
+
+Use `Skip(reason)` and `Pending(reason)` on Features, Rules, Contexts,
+Scenarios, Outlines, or Cases. Reasons are required. Disposed leaves are
+registered as skipped terminal children, so no setup, builder, hook,
+Background, or step runs. A disposed Outline still registers every example.
+Skipped and pending leaves are terminal children of a passing Feature barrier.
+The parent therefore reports `PASS` while the selected terminal child reports
+`SKIP`; the reason is printed on that child.
+
+## Lifecycle and parallel scenarios
+
+For an active scenario the order is:
+
+```text
+scenario builder → Parallel → setup → Suite Before → Scenario Before
+→ Background → visible operations → context cancellation → Cleanup
+```
+
+Setup runs once per selected active scenario or example, after `Parallel`
+resumes. It is never called for a filtered or disposed leaf. It may return any
+value, including a nil pointer or the zero value of `NoState`. `Error`,
+`Fatal`, `Skip`, or a panic from setup gates hooks, Background, and visible
+operations using the standard `testing` behavior; setup-registered cleanup
+still runs once. The scenario context is canceled before those cleanups run.
+
+Feature, Rule, Context, and Scenario builders are declaration-only. They are
+compiled before executable children are registered, except that active
+Scenario and Outline-example builders are lazy and run only in their selected
+leaf. Setup, hooks, and Steps execute directly in that atomic leaf: they must
+not type-assert `testing.TB` to create subtests or call `Parallel`.
+
+Call `s.Parallel()` only when setup, hooks, steps, and captured data are safe to
+run concurrently. The library does not clone or roll back state. `Setenv` and
+`Chdir` remain subject to the standard testing restrictions for parallel
+tests.
+
+## Migration from v0.0.x
+
+Before:
+
+```go
+bdd.Feature(t, "pricing", newWorld, func(f *bdd.Suite[*world]) {
+	f.Scenario("discount applies", func(s *bdd.ScenarioSpec[*world]) {
+		s.Then("the total is discounted", discountIsApplied()).And("the receipt is sent", receiptIsSent())
+	})
+})
+```
+
+After:
+
+```go
+bdd.Feature(t, "pricing", newWorld, func(f *bdd.Suite[*world]) {
+	f.Scenario("discount applies", func(s *bdd.ScenarioSpec[*world]) {
+		s.Then("the total is discounted", discountIsApplied())
+		s.And("the receipt is sent", receiptIsSent())
+	})
+})
+```
+
+- `StateFactory` is removed. Pass a normal `func(testing.TB) S` callback.
+- The top-level `Outline` function is replaced by `f.Outline(...)`.
+- `Noop` is removed; use a small ordinary `Step` closure where needed.
+- `Suite.Tags`, `ScenarioSpec.Tags`, and `ScenarioSpec.Background` are removed.
+- `Example.Opts` is renamed to `Example.Options`.
+- Declaration methods return nothing; replace chained calls with direct `And`
+  and `But` calls.
+- Scenario-specific setup formerly expressed as `ScenarioSpec.Background` is
+  either a `ScenarioSpec.Before` hook or a visible `Given` operation.
+- Step-created contexts and cleanups now live until scenario completion rather
+  than until an individual step subtest completes.
+- Scenario builders are lazy and do not run for filtered or disposed leaves.
+- A direct top-level `Test...` owns one Feature; split tests that declared
+  multiple Features.
