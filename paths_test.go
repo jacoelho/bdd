@@ -20,7 +20,7 @@ func TestDispositionAndBreadcrumbPaths(t *testing.T) {
 				s.Then("decomposed name runs", func(testing.TB, NoState) {})
 			})
 			f.Rule("bulk", func(r *Suite[NoState]) {
-				r.Context("premium", func(c *Suite[NoState]) {
+				r.Rule("premium", func(c *Suite[NoState]) {
 					c.Scenario("nested", func(s *ScenarioSpec[NoState]) {
 						s.Then("runs", func(testing.TB, NoState) {})
 					})
@@ -34,8 +34,8 @@ func TestDispositionAndBreadcrumbPaths(t *testing.T) {
 			})
 			f.Rule("skipped rule", func(*Suite[NoState]) {}, Skip("rule reason"))
 			f.Rule("pending rule", func(*Suite[NoState]) {}, Pending("pending rule reason"))
-			f.Context("pending context", func(*Suite[NoState]) {}, Pending("context reason"))
-			f.Context("skipped context", func(*Suite[NoState]) {}, Skip("context reason"))
+			f.Rule("pending rule scope", func(*Suite[NoState]) {}, Pending("context reason"))
+			f.Rule("skipped rule scope", func(*Suite[NoState]) {}, Skip("context reason"))
 			f.Scenario("skipped scenario", func(*ScenarioSpec[NoState]) {
 				t.Fatal("skipped scenario builder ran")
 			}, Skip("scenario reason"))
@@ -76,7 +76,7 @@ func TestDispositionAndBreadcrumbPaths(t *testing.T) {
 		prefix + "@café_@unit__scenario-direct-scenario",
 		prefix + "@café_@unit__scenario-café",
 		prefix + "@café_@unit__scenario-café",
-		prefix + "@café_@unit__rule-bulk__context-premium__scenario-nested",
+		prefix + "@café_@unit__rule-bulk__rule-premium__scenario-nested",
 		prefix + "@café_@unit__outline-strength__example-short-password",
 		prefix + "@café_@unit__outline-strength__example-long-password",
 	}
@@ -86,8 +86,8 @@ func TestDispositionAndBreadcrumbPaths(t *testing.T) {
 	}{
 		{prefix + "@café_@unit__rule-skipped-rule", "rule reason"},
 		{prefix + "@café_@unit__rule-pending-rule", "pending rule reason"},
-		{prefix + "@café_@unit__context-pending-context", "context reason"},
-		{prefix + "@café_@unit__context-skipped-context", "context reason"},
+		{prefix + "@café_@unit__rule-pending-rule-scope", "context reason"},
+		{prefix + "@café_@unit__rule-skipped-rule-scope", "context reason"},
 		{prefix + "@café_@unit__scenario-skipped-scenario", "scenario reason"},
 		{prefix + "@café_@unit__scenario-pending-scenario", "pending scenario reason"},
 		{prefix + "@café_@unit__outline-pending-outline__example-first", "outline reason"},
@@ -127,5 +127,87 @@ func TestDispositionAndBreadcrumbPaths(t *testing.T) {
 	text = string(out)
 	if err != nil || strings.Contains(text, "scenario reason") || strings.Contains(text, "SKIP") || strings.Contains(text, "disposed case builder ran") {
 		t.Fatalf("nonmatching selector ran disposed leaf: %v\n%s", err, out)
+	}
+}
+
+func TestDuplicateRulePathsAreReservedBeforeLeaves(t *testing.T) {
+	cases := []string{"active-active", "active-disposed", "disposed-disposed"}
+	if os.Getenv("BDD_DUPLICATE_RULE_CASE") != "" {
+		setup := func(testing.TB) NoState {
+			t.Log("DUPLICATE_RULE_SETUP_RAN")
+			return NoState{}
+		}
+		Feature(t, "duplicate rules", setup, func(f *Suite[NoState]) {
+			active := func(r *Suite[NoState]) {
+				r.Scenario("first", func(s *ScenarioSpec[NoState]) {
+					s.Then("runs", func(testing.TB, NoState) {})
+				})
+			}
+			switch os.Getenv("BDD_DUPLICATE_RULE_CASE") {
+			case "active-active":
+				f.Rule("same!", active)
+				f.Rule("same?", func(r *Suite[NoState]) {
+					r.Scenario("second", func(s *ScenarioSpec[NoState]) {
+						s.Then("runs", func(testing.TB, NoState) {})
+					})
+				})
+			case "active-disposed":
+				f.Rule("same!", active)
+				f.Rule("same?", nil, Skip("disposed duplicate"))
+			case "disposed-disposed":
+				f.Rule("same!", nil, Skip("first disposed"))
+				f.Rule("same?", nil, Pending("second disposed"))
+			}
+		})
+		return
+	}
+
+	for _, ruleCase := range cases {
+		ruleCase := ruleCase
+		t.Run(ruleCase, func(t *testing.T) {
+			cmd := exec.Command(os.Args[0], "-test.run=^TestDuplicateRulePathsAreReservedBeforeLeaves$")
+			cmd.Env = append(os.Environ(), "BDD_DUPLICATE_RULE_CASE="+ruleCase)
+			out, err := cmd.CombinedOutput()
+			text := string(out)
+			if err == nil || !strings.Contains(text, "duplicate Rule identity") || strings.Count(text, "paths_test.go:") < 2 || strings.Contains(text, "DUPLICATE_RULE_SETUP_RAN") {
+				t.Fatalf("duplicate Rule case %s result = %v; output:\n%s", ruleCase, err, out)
+			}
+		})
+	}
+}
+
+func TestNestedSameNamedRulesRemainDistinct(t *testing.T) {
+	Feature(t, "nested same rules", NewNoState, func(f *Suite[NoState]) {
+		f.Rule("same", func(r *Suite[NoState]) {
+			r.Scenario("outer", func(s *ScenarioSpec[NoState]) {
+				s.Then("runs", func(testing.TB, NoState) {})
+			})
+			r.Rule("same", func(nested *Suite[NoState]) {
+				nested.Scenario("inner", func(s *ScenarioSpec[NoState]) {
+					s.Then("runs", func(testing.TB, NoState) {})
+				})
+			})
+		})
+	}, Tags("unit", "café"))
+}
+
+func TestExactPrecomposedUTF8SelectorRunsLeaf(t *testing.T) {
+	if os.Getenv("BDD_EXACT_UTF8_SELECTOR") == "1" {
+		Feature(t, "Café pricing", NewNoState, func(f *Suite[NoState]) {
+			f.Scenario("réduit", func(s *ScenarioSpec[NoState]) {
+				s.Then("the unique UTF-8 marker runs", func(t testing.TB, _ NoState) {
+					t.Log("EXACT_PRECOMPOSED_UTF8_MARKER")
+				})
+			})
+		})
+		return
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestExactPrecomposedUTF8SelectorRunsLeaf$/^feature-café-pricing$/^scenario-réduit$", "-test.v")
+	cmd.Env = append(os.Environ(), "BDD_EXACT_UTF8_SELECTOR=1")
+	out, err := cmd.CombinedOutput()
+	text := string(out)
+	if err != nil || strings.Count(text, "EXACT_PRECOMPOSED_UTF8_MARKER") != 1 || !strings.Contains(text, "TestExactPrecomposedUTF8SelectorRunsLeaf/feature-café-pricing/scenario-réduit") {
+		t.Fatalf("exact UTF-8 selector result = %v; args=%q; output:\n%s", err, cmd.Args, out)
 	}
 }

@@ -1,6 +1,9 @@
 package bdd
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 // Step is a reusable operation or assertion against a scenario state.
 type Step[S any] func(t testing.TB, state S)
@@ -12,7 +15,6 @@ const (
 	kindThen       stepKind = "Then"
 	kindAnd        stepKind = "And"
 	kindBut        stepKind = "But"
-	kindPending    stepKind = "Pending"
 )
 
 type stepKind string
@@ -21,14 +23,14 @@ type stepKind string
 type NoState struct{}
 
 // NewNoState returns an empty scenario state.
-func NewNoState(t testing.TB) NoState {
-	t.Helper()
+func NewNoState(_ testing.TB) NoState {
 	return NoState{}
 }
 
 // Compose returns one step from many smaller steps. It is useful for reusable
 // domain fixtures such as LoggedInPremiumCustomer().
 func Compose[S any](steps ...Step[S]) Step[S] {
+	steps = slices.Clone(steps)
 	return func(t testing.TB, state S) {
 		t.Helper()
 		if len(steps) == 0 {

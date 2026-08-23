@@ -59,8 +59,7 @@ func TestStepTextSelectorDoesNotSelectScenario(t *testing.T) {
 			return NoState{}
 		}, func(f *Suite[NoState]) {
 			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) {
-				s.Then("needle step", func(t testing.TB, _ NoState) { t.Fatal("step selector executed a step") })
-				s.Then("later step", func(t testing.TB, _ NoState) { t.Fatal("later step ran") })
+				s.Then("needle step", func(t testing.TB, _ NoState) { t.Fatal("step selector executed a step") }).Then("later step", func(t testing.TB, _ NoState) { t.Fatal("later step ran") })
 			})
 		})
 		return

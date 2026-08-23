@@ -63,6 +63,17 @@ func TestComposeRunsComponentsInOrder(t *testing.T) {
 	})
 }
 
+func TestComposeSnapshotsComponentSlice(t *testing.T) {
+	var ranOriginal, ranReplacement bool
+	parts := []Step[NoState]{func(testing.TB, NoState) { ranOriginal = true }}
+	composed := Compose(parts...)
+	parts[0] = func(testing.TB, NoState) { ranReplacement = true }
+	composed(t, NoState{})
+	if !ranOriginal || ranReplacement {
+		t.Fatalf("Compose did not snapshot components: original=%v replacement=%v", ranOriginal, ranReplacement)
+	}
+}
+
 func TestOptionsAndExamplesAreClonedAtBoundaries(t *testing.T) {
 	tags := []string{"Café"}
 	tagOption := Tags(tags...)
@@ -75,11 +86,11 @@ func TestOptionsAndExamplesAreClonedAtBoundaries(t *testing.T) {
 	options := []Option{Tags("unit")}
 	example := Case("example", 1, options...)
 	options[0] = Option{}
-	if _, err := (meta{}).with(example.Options...); err != nil {
+	if _, err := (meta{}).with(example.options...); err != nil {
 		t.Fatalf("Case retained caller option slice: %v", err)
 	}
 
-	examples := []Example[int]{{Name: "original", Value: 1, Options: []Option{Tags("unit")}}}
+	examples := []Example[int]{Case("original", 1, Tags("unit"))}
 	Feature(t, "outline cloning", NewNoState, func(f *Suite[NoState]) {
 		f.Outline("rows", examples, func(value int, s *ScenarioSpec[NoState]) {
 			s.Then("the cloned row runs", func(t testing.TB, _ NoState) {
@@ -89,13 +100,13 @@ func TestOptionsAndExamplesAreClonedAtBoundaries(t *testing.T) {
 			})
 		})
 		// Outline copies the example and its options before its lazy leaf runs.
-		examples[0].Name = "mutated after declaration"
-		examples[0].Options[0] = Option{}
+		examples[0].name = "mutated after declaration"
+		examples[0].options[0] = Option{}
 	})
 	owned := []int{1}
 	shallow := Case("shallow", owned)
 	owned[0] = 2
-	if shallow.Value[0] != 2 {
-		t.Fatalf("Case unexpectedly deep-copied reference data: %#v", shallow.Value)
+	if shallow.value[0] != 2 {
+		t.Fatalf("Case unexpectedly deep-copied reference data: %#v", shallow.value)
 	}
 }

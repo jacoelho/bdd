@@ -95,7 +95,7 @@ func TestLifecycleOrderIncludesParallelAndCleanup(t *testing.T) {
 			f.Rule("rule", func(r *Suite[NoState]) {
 				r.Before(func(t testing.TB, _ NoState) { t.Log("INNER_SUITE_BEFORE") })
 				r.Background("inner background", func(t testing.TB, _ NoState) { t.Log("INNER_BACKGROUND") })
-				r.Context("context", func(c *Suite[NoState]) {
+				r.Rule("context", func(c *Suite[NoState]) {
 					c.Before(func(t testing.TB, _ NoState) { t.Log("CONTEXT_SUITE_BEFORE") })
 					c.Scenario("scenario", func(s *ScenarioSpec[NoState]) {
 						t.Log("SCENARIO_BUILDER")
@@ -111,14 +111,14 @@ func TestLifecycleOrderIncludesParallelAndCleanup(t *testing.T) {
 
 	// The scenario name is not tagged and is nested logically, so select it by
 	// its generated direct-child name after inspecting the expected breadcrumb.
-	cmd := exec.Command(os.Args[0], "-test.run=^TestLifecycleOrderIncludesParallelAndCleanup$/^feature-lifecycle-order$/^rule-rule__context-context__scenario-scenario$", "-test.v")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestLifecycleOrderIncludesParallelAndCleanup$/^feature-lifecycle-order$/^rule-rule__rule-context__scenario-scenario$", "-test.v")
 	cmd.Env = append(os.Environ(), "BDD_LIFECYCLE_ORDER_SUBPROCESS=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("lifecycle subprocess result = %v\n%s", err, out)
 	}
 	text := string(out)
-	path := "TestLifecycleOrderIncludesParallelAndCleanup/feature-lifecycle-order/rule-rule__context-context__scenario-scenario"
+	path := "TestLifecycleOrderIncludesParallelAndCleanup/feature-lifecycle-order/rule-rule__rule-context__scenario-scenario"
 	featureBuilder := strings.Index(text, "FEATURE_BUILDER")
 	scenarioBuilder := strings.Index(text, "SCENARIO_BUILDER")
 	pause := strings.Index(text, "=== PAUSE "+path)

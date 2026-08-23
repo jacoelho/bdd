@@ -23,6 +23,21 @@ func TestOutlineRequiresExamples(t *testing.T) {
 	}
 }
 
+func TestOutlineRejectsZeroExample(t *testing.T) {
+	if os.Getenv("BDD_ZERO_EXAMPLE_SUBPROCESS") == "1" {
+		Feature(t, "zero example", NewNoState, func(f *Suite[NoState]) {
+			f.Outline("rows", []Example[int]{{}}, func(int, *ScenarioSpec[NoState]) {})
+		})
+		return
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=^TestOutlineRejectsZeroExample$")
+	cmd.Env = append(os.Environ(), "BDD_ZERO_EXAMPLE_SUBPROCESS=1")
+	out, err := cmd.CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "use bdd.Case") || !strings.Contains(string(out), "outline_test.go:") {
+		t.Fatalf("zero Example result = %v; output:\n%s", err, out)
+	}
+}
+
 func TestOutlineMethodAndCaseOptions(t *testing.T) {
 	type row struct{ value int }
 	cases := []Example[row]{

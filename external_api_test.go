@@ -12,19 +12,31 @@ func TestExternalTypedAPI(t *testing.T) {
 	bdd.Feature(t, "external typed API", func(testing.TB) *world {
 		return &world{}
 	}, func(f *bdd.Suite[*world]) {
-		f.Background("the world is ready", func(testing.TB, *world) {})
-		f.And("the fixture is loaded", func(testing.TB, *world) {})
+		f.Background("the world is ready", func(testing.TB, *world) {}).
+			And("the fixture is loaded", func(testing.TB, *world) {})
 		f.Scenario("direct methods compile", func(s *bdd.ScenarioSpec[*world]) {
-			s.Given("a typed world", func(testing.TB, *world) {})
-			s.And("an additional condition", func(testing.TB, *world) {})
-			s.When("the value changes", func(_ testing.TB, w *world) { w.value++ })
-			s.Then("the value is one", func(t testing.TB, w *world) {
+			chain := s.Given("a typed world", func(testing.TB, *world) {})
+			chain = chain.And("an additional condition", func(testing.TB, *world) {})
+			chain = chain.When("the value changes", func(_ testing.TB, w *world) { w.value++ })
+			chain = chain.Then("the value is one", func(t testing.TB, w *world) {
 				if w.value != 1 {
 					t.Fatalf("value = %d; want 1", w.value)
 				}
 			})
-			s.But("no error is reported", func(testing.TB, *world) {})
+			_ = chain.But("no error is reported", func(testing.TB, *world) {})
 		}, option)
+		f.Scenario("all starters are callable", func(s *bdd.ScenarioSpec[*world]) {
+			s.When("a request arrives", func(testing.TB, *world) {}).
+				Given("the world is typed", func(testing.TB, *world) {}).
+				Then("the response is checked", func(testing.TB, *world) {}).
+				But("the result is stable", func(testing.TB, *world) {})
+		})
+		f.Scenario("repeated flexible keywords", func(s *bdd.ScenarioSpec[*world]) {
+			chain := s.Then("the first assertion", func(testing.TB, *world) {})
+			chain = chain.Then("the repeated assertion", func(testing.TB, *world) {})
+			chain = chain.Given("a later precondition", func(testing.TB, *world) {})
+			_ = chain.When("the final action", func(testing.TB, *world) {})
+		})
 	}, option)
 }
 

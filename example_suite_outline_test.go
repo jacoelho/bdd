@@ -60,9 +60,9 @@ func TestOutline(t *testing.T) {
 		f.Background("a stocked warehouse", stockedWarehouse())
 
 		f.Outline("stock controls shipping", examples, func(tc row, s *bdd.ScenarioSpec[*shippingWorld]) {
-			s.Given("a customer selects the item", skuIs(tc.sku))
-			s.When("shipping availability is checked", availabilityIsChecked())
-			s.Then("the shipping decision is returned", shippingAllowed(tc.want))
+			s.Given("a customer selects the item", skuIs(tc.sku)).
+				When("shipping availability is checked", availabilityIsChecked()).
+				Then("the shipping decision is returned", shippingAllowed(tc.want))
 		})
 	}, bdd.Tags("unit"))
 }

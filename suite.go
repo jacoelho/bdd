@@ -23,6 +23,7 @@ type featurePlan[S any] struct {
 	leaves []*leaf[S]
 	seen   map[string]string
 	names  map[string]string
+	rules  map[string]string
 }
 
 type leaf[S any] struct {
@@ -39,7 +40,7 @@ type leaf[S any] struct {
 }
 
 // Suite is a typed BDD declaration scope. Its fields are intentionally
-// private; use Feature, Rule, Context, Scenario, Outline, hooks, and
+// private; use Feature, Rule, Scenario, Outline, hooks, and
 // Background to declare behavior.
 type Suite[S any] struct {
 	feature       *featurePlan[S]
@@ -64,7 +65,9 @@ var featureClaims = struct {
 // resumes and before hooks and steps; it receives that leaf's testing.TB.
 // Setup is not called for filtered or disposed leaves and may return a zero
 // value, including a nil pointer. Its Cleanup, Error, Fatal, Skip, and panic
-// behavior follows the standard testing package.
+// behavior follows the standard testing package. Setup must be nonnil. A nil
+// Feature builder is legal only when a disposition option makes the Feature
+// non-executable.
 func Feature[S any](t *testing.T, name string, setup func(testing.TB) S, build func(*Suite[S]), opts ...Option) {
 	where := declarationSource()
 	if t == nil {
@@ -77,9 +80,6 @@ func Feature[S any](t *testing.T, name string, setup func(testing.TB) S, build f
 	if setup == nil {
 		t.Fatalf("bdd: %s: Feature %q has a nil setup callback", where, name)
 	}
-	if build == nil {
-		t.Fatalf("bdd: %s: Feature %q has a nil builder", where, name)
-	}
 	featureSlug, err := slugName(name)
 	if err != nil {
 		t.Fatalf("bdd: %s: invalid Feature name %q: %v", where, name, err)
@@ -87,6 +87,9 @@ func Feature[S any](t *testing.T, name string, setup func(testing.TB) S, build f
 	m, err := (meta{}).with(opts...)
 	if err != nil {
 		t.Fatalf("bdd: %s: invalid Feature options: %v", where, err)
+	}
+	if build == nil && !m.hasDisposition() {
+		t.Fatalf("bdd: %s: Feature %q has a nil builder", where, name)
 	}
 	if err := claimFeature(t, where); err != nil {
 		t.Fatalf("bdd: %s: %v", where, err)
@@ -108,6 +111,7 @@ func Feature[S any](t *testing.T, name string, setup func(testing.TB) S, build f
 			setup: setup,
 			seen:  make(map[string]string),
 			names: make(map[string]string),
+			rules: make(map[string]string),
 		}
 		suite := &Suite[S]{
 			feature: plan,
@@ -118,6 +122,9 @@ func Feature[S any](t *testing.T, name string, setup func(testing.TB) S, build f
 			defer suite.seal()
 			build(suite)
 		}()
+		if featureT.Failed() || featureT.Skipped() {
+			return
+		}
 		if len(plan.leaves) == 0 {
 			featureT.Fatalf("bdd: %s: Feature %q must contain at least one Scenario or Outline example", where, name)
 		}
@@ -143,25 +150,18 @@ func claimFeature(t *testing.T, where string) error {
 }
 
 // Rule creates a logical rule breadcrumb. It does not create a testing
-// subtest, so all descendant scenarios remain direct Feature children.
+// subtest, so all descendant scenarios remain direct Feature children. A nil
+// builder is legal only when a disposition option makes the Rule non-executable.
 func (s *Suite[S]) Rule(name string, build func(*Suite[S]), opts ...Option) {
-	s.group("rule", name, build, declarationSource(), opts...)
-}
-
-// Context creates a logical context breadcrumb. It does not create a testing
-// subtest, so all descendant scenarios remain direct Feature children.
-func (s *Suite[S]) Context(name string, build func(*Suite[S]), opts ...Option) {
-	s.group("context", name, build, declarationSource(), opts...)
+	s.rule(name, build, declarationSource(), opts...)
 }
 
 // Scenario declares one atomic scenario leaf. Its builder runs lazily inside
-// the selected leaf, after Go's -run filtering has selected it.
+// the selected leaf, after Go's -run filtering has selected it. A nil builder
+// is legal only for a disposed Scenario.
 func (s *Suite[S]) Scenario(name string, build func(*ScenarioSpec[S]), opts ...Option) {
 	where := declarationSource()
 	s.declareChild()
-	if build == nil {
-		s.failfAt(where, "Scenario %q has a nil builder", name)
-	}
 	slug, err := slugName(name)
 	if err != nil {
 		s.failfAt(where, "invalid Scenario name %q: %v", name, err)
@@ -169,6 +169,9 @@ func (s *Suite[S]) Scenario(name string, build func(*ScenarioSpec[S]), opts ...O
 	m, err := s.nodeMeta(opts...)
 	if err != nil {
 		s.failfAt(where, "invalid Scenario %q options: %v", name, err)
+	}
+	if build == nil && !m.hasDisposition() {
+		s.failfAt(where, "Scenario %q has a nil builder", name)
 	}
 	crumbs := append(slices.Clone(s.breadcrumbs), crumb{kind: "scenario", slug: slug, raw: name})
 	s.addLeaf(&leaf[S]{
@@ -185,25 +188,17 @@ func (s *Suite[S]) Scenario(name string, build func(*ScenarioSpec[S]), opts ...O
 	})
 }
 
-// Background adds a visible setup operation to this lexical suite. It must be
-// followed by And or But calls if continuations are needed.
-func (s *Suite[S]) Background(text string, fn Step[S]) {
+// Background adds a visible setup operation and returns a private capability
+// exposing only And and But. Reassign every returned value when storing the
+// capability. Copying a value is harmless; a stale value used while the Suite
+// builder is active fails through the owning declaration, while any value used
+// after the builder returns panics with the owner-sealed diagnostic.
+func (s *Suite[S]) Background(text string, fn Step[S]) backgroundChain[S] {
 	where := declarationSource()
 	s.ensureOpen()
-	if s.children {
-		s.failfAt(where, "Background must be declared before child scenarios")
-	}
-	if s.hasBackground {
-		s.failfAt(where, "Suite may declare only one local Background")
-	}
-	if fn == nil {
-		s.failfAt(where, "Background %q has a nil step", text)
-	}
-	if strings.TrimSpace(text) == "" {
-		s.failfAt(where, "Background text is blank")
-	}
-	s.background = append(s.background, newStep(kindBackground, text, fn))
+	s.appendBackground(where, kindBackground, text, fn)
 	s.hasBackground = true
+	return s.newBackgroundChain(where)
 }
 
 // Before adds a hidden setup hook inherited by descendant scenarios.
@@ -222,23 +217,35 @@ func (s *Suite[S]) Before(fn Step[S]) {
 	s.before = append(s.before, fn)
 }
 
-// And appends a continuation to this suite's local Background.
-func (s *Suite[S]) And(text string, fn Step[S]) {
-	s.backgroundContinuation(kindAnd, text, fn, declarationSource())
+func (s *Suite[S]) newBackgroundChain(issued string) backgroundChain[S] {
+	return backgroundChain[S]{core: chainCore[S]{
+		expected: len(s.background),
+		issued:   issued,
+		advance:  s.appendBackgroundFromChain,
+	}}
 }
 
-// But appends a continuation to this suite's local Background.
-func (s *Suite[S]) But(text string, fn Step[S]) {
-	s.backgroundContinuation(kindBut, text, fn, declarationSource())
+func (s *Suite[S]) appendBackgroundFromChain(expected int, issued, where string, kind stepKind, text string, fn Step[S]) int {
+	// Check ownership before generation so a token used after this Suite's
+	// builder returns reports the stable sealed-owner diagnostic.
+	s.ensureOpen()
+	if len(s.background) != expected {
+		s.failfAt(where, "stale Background chain token issued at %s; expected operation generation %d, found %d; assign every returned chain value", issued, expected, len(s.background))
+	}
+	s.appendBackground(where, kind, text, fn)
+	return expected + 1
 }
 
-func (s *Suite[S]) backgroundContinuation(kind stepKind, text string, fn Step[S], where string) {
+func (s *Suite[S]) appendBackground(where string, kind stepKind, text string, fn Step[S]) {
 	s.ensureOpen()
 	if s.children {
-		s.failfAt(where, "%s must be declared before child scenarios", kind)
+		s.failfAt(where, "Background must be declared before child scenarios")
 	}
-	if !s.hasBackground {
+	if kind != kindBackground && !s.hasBackground {
 		s.failfAt(where, "%s requires a local Background", kind)
+	}
+	if kind == kindBackground && s.hasBackground {
+		s.failfAt(where, "Suite may declare only one local Background")
 	}
 	if fn == nil {
 		s.failfAt(where, "%s %q has a nil step", kind, text)
@@ -249,20 +256,22 @@ func (s *Suite[S]) backgroundContinuation(kind stepKind, text string, fn Step[S]
 	s.background = append(s.background, newStep(kind, text, fn))
 }
 
-func (s *Suite[S]) group(kind, name string, build func(*Suite[S]), where string, opts ...Option) {
+func (s *Suite[S]) rule(name string, build func(*Suite[S]), where string, opts ...Option) {
 	s.declareChild()
-	if build == nil {
-		s.failfAt(where, "%s %q has a nil builder", kind, name)
-	}
 	slug, err := slugName(name)
 	if err != nil {
-		s.failfAt(where, "invalid %s name %q: %v", kind, name, err)
+		s.failfAt(where, "invalid Rule name %q: %v", name, err)
 	}
 	m, err := s.nodeMeta(opts...)
 	if err != nil {
-		s.failfAt(where, "invalid %s %q options: %v", kind, name, err)
+		s.failfAt(where, "invalid Rule %q options: %v", name, err)
 	}
-	crumbs := append(slices.Clone(s.breadcrumbs), crumb{kind: kind, slug: slug, raw: name})
+	crumbs := append(slices.Clone(s.breadcrumbs), crumb{kind: "rule", slug: slug, raw: name})
+	ruleKey := breadcrumbKey(crumbs)
+	if previous, ok := s.feature.rules[ruleKey]; ok {
+		s.failfAt(where, "duplicate Rule identity %q; previous declaration at %s, current declaration at %s", ruleKey, previous, where)
+	}
+	s.feature.rules[ruleKey] = where
 	if m.hasDisposition() {
 		s.addLeaf(&leaf[S]{
 			name:       s.leafName(crumbs, m.tags),
@@ -276,6 +285,9 @@ func (s *Suite[S]) group(kind, name string, build func(*Suite[S]), where string,
 			source:     where,
 		})
 		return
+	}
+	if build == nil {
+		s.failfAt(where, "Rule %q has a nil builder", name)
 	}
 
 	child := &Suite[S]{
@@ -292,8 +304,11 @@ func (s *Suite[S]) group(kind, name string, build func(*Suite[S]), where string,
 		defer child.seal()
 		build(child)
 	}()
+	if s.owner.Failed() || s.owner.Skipped() {
+		return
+	}
 	if len(s.feature.leaves) == start {
-		s.failfAt(where, "%s %q must contain at least one Scenario or Outline example", kind, name)
+		s.failfAt(where, "Rule %q must contain at least one Scenario or Outline example", name)
 	}
 }
 
@@ -387,6 +402,9 @@ func (p *featurePlan[S]) runLeaf(t *testing.T, leaf *leaf[S]) {
 		defer spec.seal()
 		leaf.build(spec)
 	}()
+	if t.Failed() || t.Skipped() {
+		return
+	}
 	if len(spec.steps) == 0 {
 		t.Fatalf("bdd: %s: scenario %q must contain at least one visible operation", leaf.source, leaf.name)
 	}

@@ -22,6 +22,9 @@ func TestOptionFormattingAndUnicodeNames(t *testing.T) {
 	if want := []string{"café", "fast", "login-flow"}; !reflect.DeepEqual(m.tags, want) {
 		t.Fatalf("tags = %#v; want %#v", m.tags, want)
 	}
+	if _, err := (meta{}).with(Tags("कः")); err != nil {
+		t.Fatalf("spacing combining mark was rejected: %v", err)
+	}
 	if _, err := (meta{}).with(Option{}); err == nil {
 		t.Fatal("zero Option unexpectedly accepted")
 	}
@@ -58,15 +61,12 @@ func TestSuiteGroupingAndScenarioAPI(t *testing.T) {
 
 	Feature(t, "typed feature", NewNoState, func(f *Suite[NoState]) {
 		f.Before(func(testing.TB, NoState) { order = append(order, "suite before") })
-		f.Background("background", func(testing.TB, NoState) { order = append(order, "background") })
-		f.And("background continuation", func(testing.TB, NoState) { order = append(order, "background and") })
+		f.Background("background", func(testing.TB, NoState) { order = append(order, "background") }).And("background continuation", func(testing.TB, NoState) { order = append(order, "background and") })
 		f.Rule("rule", func(r *Suite[NoState]) {
-			r.Context("context", func(c *Suite[NoState]) {
+			r.Rule("context", func(c *Suite[NoState]) {
 				c.Scenario("scenario", func(s *ScenarioSpec[NoState]) {
 					s.Before(func(testing.TB, NoState) { order = append(order, "scenario before") })
-					s.Given("a condition", func(testing.TB, NoState) { order = append(order, "given") })
-					s.And("an addition", func(testing.TB, NoState) { order = append(order, "and") })
-					s.But("an exception", func(t testing.TB, _ NoState) {
+					s.Given("a condition", func(testing.TB, NoState) { order = append(order, "given") }).And("an addition", func(testing.TB, NoState) { order = append(order, "and") }).But("an exception", func(t testing.TB, _ NoState) {
 						order = append(order, "but")
 						want := []string{"suite before", "scenario before", "background", "background and", "given", "and", "but"}
 						if !reflect.DeepEqual(order, want) {
@@ -108,33 +108,18 @@ func TestEmptyFeatureIsRejected(t *testing.T) {
 	}
 }
 
-func TestEmptyRuleAndContextAreRejected(t *testing.T) {
+func TestEmptyRuleIsRejected(t *testing.T) {
 	if os.Getenv("BDD_EMPTY_GROUP_SUBPROCESS") == "1" {
 		Feature(t, "empty groups", NewNoState, func(f *Suite[NoState]) {
 			f.Rule("empty rule", func(*Suite[NoState]) {})
 		})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestEmptyRuleAndContextAreRejected$")
+	cmd := exec.Command(os.Args[0], "-test.run=^TestEmptyRuleIsRejected$")
 	cmd.Env = append(os.Environ(), "BDD_EMPTY_GROUP_SUBPROCESS=1")
 	out, err := cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(out), "rule \"empty rule\" must contain") {
+	if err == nil || !strings.Contains(string(out), "Rule \"empty rule\" must contain") {
 		t.Fatalf("empty Rule result = %v, output:\n%s", err, out)
-	}
-}
-
-func TestEmptyContextIsRejected(t *testing.T) {
-	if os.Getenv("BDD_EMPTY_CONTEXT_SUBPROCESS") == "1" {
-		Feature(t, "empty context", NewNoState, func(f *Suite[NoState]) {
-			f.Context("empty context", func(*Suite[NoState]) {})
-		})
-		return
-	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestEmptyContextIsRejected$")
-	cmd.Env = append(os.Environ(), "BDD_EMPTY_CONTEXT_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(out), "context \"empty context\" must contain") {
-		t.Fatalf("empty Context result = %v, output:\n%s", err, out)
 	}
 }
 
@@ -146,6 +131,25 @@ func TestSkippedFeatureDoesNotBuild(t *testing.T) {
 	if ran {
 		t.Fatal("skipped feature build ran")
 	}
+}
+
+func TestDisposedFeatureMayOmitBuilder(t *testing.T) {
+	Feature(t, "disposed feature without builder", NewNoState, nil, Skip("feature is blocked"), Tags("unit", "café"))
+}
+
+func TestDisposedNodesMayOmitBuilders(t *testing.T) {
+	Feature(t, "disposed nil builders", NewNoState, func(f *Suite[NoState]) {
+		f.Rule("skipped rule", nil, Skip("rule is blocked"))
+		f.Scenario("pending scenario", nil, Pending("scenario is not ready"))
+		f.Outline("pending outline", []Example[int]{
+			Case("first", 1),
+			Case("second", 2, Skip("case is blocked")),
+		}, nil, Pending("outline is not ready"))
+		f.Outline("all cases disposed", []Example[int]{
+			Case("first", 1, Skip("first is blocked")),
+			Case("second", 2, Pending("second is not ready")),
+		}, nil)
+	}, Tags("unit", "café"))
 }
 
 func TestPendingFeaturePlaceholderHasStablePath(t *testing.T) {
@@ -306,7 +310,7 @@ func TestSkippedGroupsDoNotBuild(t *testing.T) {
 		f.Rule("skipped rule", func(r *Suite[NoState]) {
 			ran = true
 		}, Skip("skip rule"))
-		f.Context("skipped context", func(c *Suite[NoState]) {
+		f.Rule("skipped context", func(c *Suite[NoState]) {
 			ran = true
 		}, Pending("waiting for context"))
 	})
@@ -517,12 +521,9 @@ func TestZeroReceiversPanicWithStableMessages(t *testing.T) {
 	})
 	assertPanic("bdd: Suite receiver is nil", func() { nilSuite.Before(func(testing.TB, NoState) {}) })
 	assertPanic("bdd: Suite receiver is nil", func() { nilSuite.Background("x", func(testing.TB, NoState) {}) })
-	assertPanic("bdd: Suite receiver is nil", func() { nilSuite.And("x", func(testing.TB, NoState) {}) })
-	assertPanic("bdd: Suite receiver is nil", func() { nilSuite.But("x", func(testing.TB, NoState) {}) })
 	assertPanic("bdd: Suite receiver is nil", func() { nilSuite.Rule("x", func(*Suite[NoState]) {}) })
-	assertPanic("bdd: Suite receiver is nil", func() { nilSuite.Context("x", func(*Suite[NoState]) {}) })
 	assertPanic("bdd: Suite receiver is nil", func() {
-		nilSuite.Outline("x", []Example[int]{{Name: "case", Value: 1}}, func(int, *ScenarioSpec[NoState]) {})
+		nilSuite.Outline("x", []Example[int]{Case("case", 1)}, func(int, *ScenarioSpec[NoState]) {})
 	})
 	assertPanic("bdd: Suite receiver is zero", func() {
 		(&Suite[NoState]{}).Background("x", func(testing.TB, NoState) {})
@@ -535,9 +536,6 @@ func TestZeroReceiversPanicWithStableMessages(t *testing.T) {
 	assertPanic("bdd: ScenarioSpec receiver is nil", func() {
 		nilSpec.Then("x", func(testing.TB, NoState) {})
 	})
-	assertPanic("bdd: ScenarioSpec receiver is nil", func() { nilSpec.And("x", func(testing.TB, NoState) {}) })
-	assertPanic("bdd: ScenarioSpec receiver is nil", func() { nilSpec.But("x", func(testing.TB, NoState) {}) })
-	assertPanic("bdd: ScenarioSpec receiver is nil", func() { nilSpec.Pending("x", "reason") })
 	assertPanic("bdd: ScenarioSpec receiver is zero", func() {
 		(&ScenarioSpec[NoState]{}).Parallel()
 	})

@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Option customizes a Feature, Rule, Context, Scenario, Outline, or Example.
+// Option customizes a Feature, Rule, Scenario, Outline, or Case.
 //
 // Option's fields are intentionally private. Construct options with Tags,
 // Skip, or Pending; the zero value is invalid. Case constructs an Example,
@@ -53,11 +53,10 @@ func declarationSource() string {
 	return "unknown location"
 }
 
-// Tags annotates a Feature, Rule, Context, Scenario, Outline, or Example.
-// Tags are inherited by children and added to generated test names as @tag, so
-// ordinary go test -run filtering can select them. Tags are Unicode strings
-// made of one or more hyphen-separated letter/number segments; callers omit
-// the leading @.
+// Tags annotates a Feature, Rule, Scenario, Outline, or Case. Tags are
+// inherited by children and added to generated test names as @tag, so ordinary
+// go test -run filtering can select them. Callers omit the leading @. Tags are
+// Unicode strings made of one or more hyphen-separated letter/number segments.
 func Tags(tags ...string) Option {
 	o := Option{kind: optionTags, where: declarationSource(), tags: slices.Clone(tags)}
 	if len(tags) == 0 {
@@ -75,8 +74,8 @@ func Tags(tags ...string) Option {
 	return o
 }
 
-// Skip marks a Feature, Rule, Context, Scenario, Outline, or Example as
-// skipped. Pass it to Case for example-specific disposition.
+// Skip marks a Feature, Rule, Scenario, Outline, or Case as skipped. Pass it
+// to Case for example-specific disposition.
 func Skip(reason string) Option {
 	o := Option{kind: optionSkip, reason: strings.TrimSpace(reason), where: declarationSource()}
 	if o.reason == "" {
@@ -85,9 +84,9 @@ func Skip(reason string) Option {
 	return o
 }
 
-// Pending marks a Feature, Rule, Context, Scenario, Outline, or Example as
-// pending. Pass it to Case for example-specific disposition. Pending nodes are
-// represented as skipped tests by Go's testing package.
+// Pending marks a Feature, Rule, Scenario, Outline, or Case as pending. Pass
+// it to Case for example-specific disposition. Pending nodes are represented
+// as skipped tests by Go's testing package.
 func Pending(reason string) Option {
 	o := Option{kind: optionPending, reason: strings.TrimSpace(reason), where: declarationSource()}
 	if o.reason == "" {

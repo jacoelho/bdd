@@ -10,8 +10,7 @@ import (
 func TestDeclarationValidationMatrix(t *testing.T) {
 	cases := map[string]string{
 		"nil-feature-builder":             "nil builder",
-		"nil-rule-builder":                `rule "rule" has a nil builder`,
-		"nil-context-builder":             `context "context" has a nil builder`,
+		"nil-rule-builder":                `Rule "rule" has a nil builder`,
 		"nil-scenario-builder":            `Scenario "scenario" has a nil builder`,
 		"nil-outline-builder":             `Outline "outline" has a nil builder`,
 		"nil-suite-before":                "Before has a nil step",
@@ -25,8 +24,7 @@ func TestDeclarationValidationMatrix(t *testing.T) {
 		"nil-scenario-and":                `And "and" has a nil step`,
 		"nil-scenario-but":                `But "but" has a nil step`,
 		"blank-feature":                   "invalid Feature name",
-		"blank-rule":                      "invalid rule name",
-		"blank-context":                   "invalid context name",
+		"blank-rule":                      "invalid Rule name",
 		"blank-scenario":                  "invalid Scenario name",
 		"blank-outline":                   "invalid Outline name",
 		"blank-example":                   "invalid Outline example name",
@@ -38,7 +36,6 @@ func TestDeclarationValidationMatrix(t *testing.T) {
 		"blank-background":                "Background text is blank",
 		"blank-suite-and":                 "And text is blank",
 		"blank-suite-but":                 "But text is blank",
-		"blank-pending-text":              "Pending text is blank",
 		"blank-pending-reason":            "requires a nonblank reason",
 		"blank-skip-reason":               "skip requires a nonblank reason",
 		"blank-option-pending":            "pending requires a nonblank reason",
@@ -48,16 +45,11 @@ func TestDeclarationValidationMatrix(t *testing.T) {
 		"suite-second-background":         "only one local Background",
 		"suite-background-after-child":    "Background must be declared before child scenarios",
 		"suite-before-after-child":        "Before must be declared before child scenarios",
-		"suite-and-without-background":    "And requires a local Background",
-		"suite-but-without-background":    "But requires a local Background",
-		"suite-and-after-child":           "And must be declared before child scenarios",
-		"suite-but-after-child":           "But must be declared before child scenarios",
+		"suite-and-after-child":           "Background must be declared before child scenarios",
+		"suite-but-after-child":           "Background must be declared before child scenarios",
 		"scenario-parallel-twice":         "Parallel may be declared only once",
 		"scenario-parallel-after-visible": "Parallel must be declared before visible operations",
 		"scenario-before-after-visible":   "Before must be declared before visible operations",
-		"scenario-and-without-visible":    "And requires a preceding visible clause",
-		"scenario-but-without-visible":    "But requires a preceding visible clause",
-		"scenario-after-pending":          "no operations may follow Pending",
 	}
 
 	if os.Getenv("BDD_VALIDATION_CASE") != "" {
@@ -85,7 +77,7 @@ func runValidationCase(t *testing.T, name string) {
 	validScenario := func(s *ScenarioSpec[NoState]) {
 		s.Then("visible", validStep)
 	}
-	validExamples := []Example[int]{{Name: "example", Value: 1}}
+	validExamples := []Example[int]{Case("example", 1)}
 	feature := func(build func(*Suite[NoState]), opts ...Option) {
 		Feature(t, "feature", NewNoState, build, opts...)
 	}
@@ -95,8 +87,6 @@ func runValidationCase(t *testing.T, name string) {
 		Feature(t, "feature", NewNoState, nil)
 	case "nil-rule-builder":
 		feature(func(f *Suite[NoState]) { f.Rule("rule", nil) })
-	case "nil-context-builder":
-		feature(func(f *Suite[NoState]) { f.Context("context", nil) })
 	case "nil-scenario-builder":
 		feature(func(f *Suite[NoState]) { f.Scenario("scenario", nil) })
 	case "nil-outline-builder":
@@ -107,13 +97,11 @@ func runValidationCase(t *testing.T, name string) {
 		feature(func(f *Suite[NoState]) { f.Background("background", nil) })
 	case "nil-suite-and":
 		feature(func(f *Suite[NoState]) {
-			f.Background("background", validStep)
-			f.And("continuation", nil)
+			f.Background("background", validStep).And("continuation", nil)
 		})
 	case "nil-suite-but":
 		feature(func(f *Suite[NoState]) {
-			f.Background("background", validStep)
-			f.But("continuation", nil)
+			f.Background("background", validStep).But("continuation", nil)
 		})
 	case "nil-scenario-before":
 		feature(func(f *Suite[NoState]) { f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Before(nil) }) })
@@ -131,25 +119,23 @@ func runValidationCase(t *testing.T, name string) {
 		})
 	case "nil-scenario-and":
 		feature(func(f *Suite[NoState]) {
-			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Given("given", validStep); s.And("and", nil) })
+			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Given("given", validStep).And("and", nil) })
 		})
 	case "nil-scenario-but":
 		feature(func(f *Suite[NoState]) {
-			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Given("given", validStep); s.But("but", nil) })
+			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Given("given", validStep).But("but", nil) })
 		})
 	case "blank-feature":
 		Feature(t, "", NewNoState, func(*Suite[NoState]) {})
 	case "blank-rule":
 		feature(func(f *Suite[NoState]) { f.Rule("", func(*Suite[NoState]) {}) })
-	case "blank-context":
-		feature(func(f *Suite[NoState]) { f.Context("", func(*Suite[NoState]) {}) })
 	case "blank-scenario":
 		feature(func(f *Suite[NoState]) { f.Scenario("", validScenario) })
 	case "blank-outline":
 		feature(func(f *Suite[NoState]) { f.Outline("", validExamples, func(int, *ScenarioSpec[NoState]) {}) })
 	case "blank-example":
 		feature(func(f *Suite[NoState]) {
-			f.Outline("outline", []Example[int]{{Name: "", Value: 1}}, func(int, *ScenarioSpec[NoState]) {})
+			f.Outline("outline", []Example[int]{Case("", 1)}, func(int, *ScenarioSpec[NoState]) {})
 		})
 	case "blank-given":
 		feature(func(f *Suite[NoState]) {
@@ -165,25 +151,21 @@ func runValidationCase(t *testing.T, name string) {
 		})
 	case "blank-and":
 		feature(func(f *Suite[NoState]) {
-			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Given("given", validStep); s.And("", validStep) })
+			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Given("given", validStep).And("", validStep) })
 		})
 	case "blank-but":
 		feature(func(f *Suite[NoState]) {
-			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Given("given", validStep); s.But("", validStep) })
+			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Given("given", validStep).But("", validStep) })
 		})
 	case "blank-background":
 		feature(func(f *Suite[NoState]) { f.Background("", validStep) })
 	case "blank-suite-and":
-		feature(func(f *Suite[NoState]) { f.Background("background", validStep); f.And("", validStep) })
+		feature(func(f *Suite[NoState]) { f.Background("background", validStep).And("", validStep) })
 	case "blank-suite-but":
-		feature(func(f *Suite[NoState]) { f.Background("background", validStep); f.But("", validStep) })
-	case "blank-pending-text":
-		feature(func(f *Suite[NoState]) {
-			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Pending(" ", "reason") })
-		})
+		feature(func(f *Suite[NoState]) { f.Background("background", validStep).But("", validStep) })
 	case "blank-pending-reason":
 		feature(func(f *Suite[NoState]) {
-			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Pending("pending", " ") })
+			f.Scenario("scenario", nil, Pending(" "))
 		})
 	case "blank-skip-reason":
 		feature(func(f *Suite[NoState]) {}, Skip(" "))
@@ -201,21 +183,17 @@ func runValidationCase(t *testing.T, name string) {
 		feature(func(f *Suite[NoState]) { f.Scenario("scenario", validScenario); f.Background("background", validStep) })
 	case "suite-before-after-child":
 		feature(func(f *Suite[NoState]) { f.Scenario("scenario", validScenario); f.Before(validStep) })
-	case "suite-and-without-background":
-		feature(func(f *Suite[NoState]) { f.And("continuation", validStep) })
-	case "suite-but-without-background":
-		feature(func(f *Suite[NoState]) { f.But("continuation", validStep) })
 	case "suite-and-after-child":
 		feature(func(f *Suite[NoState]) {
-			f.Background("background", validStep)
+			chain := f.Background("background", validStep)
 			f.Scenario("scenario", validScenario)
-			f.And("continuation", validStep)
+			chain.And("continuation", validStep)
 		})
 	case "suite-but-after-child":
 		feature(func(f *Suite[NoState]) {
-			f.Background("background", validStep)
+			chain := f.Background("background", validStep)
 			f.Scenario("scenario", validScenario)
-			f.But("continuation", validStep)
+			chain.But("continuation", validStep)
 		})
 	case "scenario-parallel-twice":
 		feature(func(f *Suite[NoState]) {
@@ -228,18 +206,6 @@ func runValidationCase(t *testing.T, name string) {
 	case "scenario-before-after-visible":
 		feature(func(f *Suite[NoState]) {
 			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Then("visible", validStep); s.Before(validStep) })
-		})
-	case "scenario-and-without-visible":
-		feature(func(f *Suite[NoState]) {
-			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.And("and", validStep) })
-		})
-	case "scenario-but-without-visible":
-		feature(func(f *Suite[NoState]) {
-			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.But("but", validStep) })
-		})
-	case "scenario-after-pending":
-		feature(func(f *Suite[NoState]) {
-			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Pending("pending", "reason"); s.Then("after", validStep) })
 		})
 	default:
 		t.Fatalf("unknown validation case %q", name)
