@@ -2,7 +2,6 @@ package bdd
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -41,7 +40,7 @@ func TestDeclarationValidationMatrix(t *testing.T) {
 		"blank-option-pending":            "pending requires a nonblank reason",
 		"zero-option":                     "zero option",
 		"conflicting-disposition":         "multiple disposition options",
-		"suite-before-after-background":   "Before must be declared before Background",
+		"suite-before-after-background":   "Before must be declared before Background; a Suite declares Before hooks, then one Background chain, then Scenario, Outline, and Rule children",
 		"suite-second-background":         "only one local Background",
 		"suite-background-after-child":    "Background must be declared before child scenarios",
 		"suite-before-after-child":        "Before must be declared before child scenarios",
@@ -49,7 +48,13 @@ func TestDeclarationValidationMatrix(t *testing.T) {
 		"suite-but-after-child":           "Background must be declared before child scenarios",
 		"scenario-parallel-twice":         "Parallel may be declared only once",
 		"scenario-parallel-after-visible": "Parallel must be declared before visible operations",
-		"scenario-before-after-visible":   "Before must be declared before visible operations",
+		"scenario-before-after-visible":   "Before must be declared before visible operations; a scenario declares Parallel and Before first, then one Given, When, or Then chain",
+		"suspended-suite-scenario":        "this Suite is suspended while its nested Rule builder runs",
+		"suspended-suite-outline":         "this Suite is suspended while its nested Rule builder runs",
+		"suspended-suite-rule":            "this Suite is suspended while its nested Rule builder runs",
+		"suspended-suite-before":          "this Suite is suspended while its nested Rule builder runs",
+		"suspended-suite-background-and":  "this Suite is suspended while its nested Rule builder runs",
+		"suspended-outer-suite-scenario":  "this Suite is suspended while its nested Rule builder runs",
 	}
 
 	if os.Getenv("BDD_VALIDATION_CASE") != "" {
@@ -60,9 +65,8 @@ func TestDeclarationValidationMatrix(t *testing.T) {
 	for name, want := range cases {
 		name, want := name, want
 		t.Run(name, func(t *testing.T) {
-			cmd := exec.Command(os.Args[0], "-test.run=^TestDeclarationValidationMatrix$")
-			cmd.Env = append(os.Environ(), "BDD_VALIDATION_CASE="+name)
-			out, err := cmd.CombinedOutput()
+			t.Parallel()
+			out, err := runSelf(t, "BDD_VALIDATION_CASE="+name)
 			text := string(out)
 			if err == nil || !strings.Contains(text, want) || !strings.Contains(text, "validation_test.go:") {
 				t.Fatalf("validation result = %v; want %q and caller source\n%s", err, want, out)
@@ -206,6 +210,49 @@ func runValidationCase(t *testing.T, name string) {
 	case "scenario-before-after-visible":
 		feature(func(f *Suite[NoState]) {
 			f.Scenario("scenario", func(s *ScenarioSpec[NoState]) { s.Then("visible", validStep); s.Before(validStep) })
+		})
+	case "suspended-suite-scenario":
+		feature(func(f *Suite[NoState]) {
+			f.Rule("rule", func(r *Suite[NoState]) {
+				// Without the suspension this scenario is filed outside the
+				// Rule, and the otherwise empty Rule is accepted.
+				f.Scenario("scenario", validScenario)
+			})
+		})
+	case "suspended-suite-outline":
+		feature(func(f *Suite[NoState]) {
+			f.Rule("rule", func(r *Suite[NoState]) {
+				f.Outline("outline", validExamples, func(_ int, s *ScenarioSpec[NoState]) { validScenario(s) })
+			})
+		})
+	case "suspended-suite-rule":
+		feature(func(f *Suite[NoState]) {
+			f.Rule("rule", func(r *Suite[NoState]) {
+				f.Rule("sibling", func(sibling *Suite[NoState]) { sibling.Scenario("scenario", validScenario) })
+			})
+		})
+	case "suspended-suite-before":
+		feature(func(f *Suite[NoState]) {
+			f.Rule("rule", func(r *Suite[NoState]) {
+				f.Before(validStep)
+				r.Scenario("scenario", validScenario)
+			})
+		})
+	case "suspended-suite-background-and":
+		feature(func(f *Suite[NoState]) {
+			chain := f.Background("background", validStep)
+			f.Rule("rule", func(r *Suite[NoState]) {
+				chain.And("continuation", validStep)
+				r.Scenario("scenario", validScenario)
+			})
+		})
+	case "suspended-outer-suite-scenario":
+		feature(func(f *Suite[NoState]) {
+			f.Rule("outer", func(outer *Suite[NoState]) {
+				outer.Rule("inner", func(inner *Suite[NoState]) { inner.Scenario("scenario", validScenario) })
+				// The inner builder returned, but the outer one is still running.
+				f.Scenario("scenario", validScenario)
+			})
 		})
 	default:
 		t.Fatalf("unknown validation case %q", name)

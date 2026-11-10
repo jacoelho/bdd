@@ -8,7 +8,9 @@ import (
 	"strings"
 )
 
-// Option customizes a Feature, Rule, Scenario, Outline, or Case.
+// Option customizes a Feature, Rule, Scenario, Outline, or Case. A node given
+// Skip or Pending is disposed: it is reported as skipped, and none of its
+// builders, setup, hooks, or steps run.
 //
 // Option's fields are intentionally private. Construct options with Tags,
 // Skip, or Pending; the zero value is invalid. Case constructs an Example,
@@ -45,8 +47,8 @@ const (
 )
 
 func declarationSource() string {
-	// The helper is called directly by each exported declaration boundary;
-	// capture the user's call site once and carry it through compilation.
+	// Caller(2) skips this function and the exported function that called it,
+	// so every exported declaration must call declarationSource directly.
 	if _, file, line, ok := runtime.Caller(2); ok {
 		return fmt.Sprintf("%s:%d", file, line)
 	}
@@ -134,6 +136,15 @@ func optionError(opt Option) string {
 
 func (m meta) hasDisposition() bool {
 	return m.disposition != dispositionNone
+}
+
+// diagnostic is the skip message of a disposed node named by subject.
+func (m meta) diagnostic(subject string) string {
+	verb := "skipped"
+	if m.disposition == dispositionPending {
+		verb = "pending"
+	}
+	return fmt.Sprintf("bdd: %s %s: %s", subject, verb, m.reason)
 }
 
 func sortedTags(tags []string) []string {

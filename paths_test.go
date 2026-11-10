@@ -2,7 +2,6 @@ package bdd
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -64,9 +63,8 @@ func TestDispositionAndBreadcrumbPaths(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestDispositionAndBreadcrumbPaths$/^feature-paths$", "-test.v")
-	cmd.Env = append(os.Environ(), "BDD_PATHS_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_PATHS_SUBPROCESS=1", "-test.run=^TestDispositionAndBreadcrumbPaths$/^feature-paths$", "-test.v")
 	if err != nil {
 		t.Fatalf("path subprocess result = %v\n%s", err, out)
 	}
@@ -121,9 +119,7 @@ func TestDispositionAndBreadcrumbPaths(t *testing.T) {
 		t.Fatalf("generated a Go duplicate suffix:\n%s", out)
 	}
 
-	none := exec.Command(os.Args[0], "-test.run=^TestDispositionAndBreadcrumbPaths$/^feature-paths$/^@other__scenario-direct-scenario$", "-test.v")
-	none.Env = append(os.Environ(), "BDD_PATHS_SUBPROCESS=1")
-	out, err = none.CombinedOutput()
+	out, err = runSelf(t, "BDD_PATHS_SUBPROCESS=1", "-test.run=^TestDispositionAndBreadcrumbPaths$/^feature-paths$/^@other__scenario-direct-scenario$", "-test.v")
 	text = string(out)
 	if err != nil || strings.Contains(text, "scenario reason") || strings.Contains(text, "SKIP") || strings.Contains(text, "disposed case builder ran") {
 		t.Fatalf("nonmatching selector ran disposed leaf: %v\n%s", err, out)
@@ -165,9 +161,8 @@ func TestDuplicateRulePathsAreReservedBeforeLeaves(t *testing.T) {
 	for _, ruleCase := range cases {
 		ruleCase := ruleCase
 		t.Run(ruleCase, func(t *testing.T) {
-			cmd := exec.Command(os.Args[0], "-test.run=^TestDuplicateRulePathsAreReservedBeforeLeaves$")
-			cmd.Env = append(os.Environ(), "BDD_DUPLICATE_RULE_CASE="+ruleCase)
-			out, err := cmd.CombinedOutput()
+			t.Parallel()
+			out, err := runSelf(t, "BDD_DUPLICATE_RULE_CASE="+ruleCase)
 			text := string(out)
 			if err == nil || !strings.Contains(text, "duplicate Rule identity") || strings.Count(text, "paths_test.go:") < 2 || strings.Contains(text, "DUPLICATE_RULE_SETUP_RAN") {
 				t.Fatalf("duplicate Rule case %s result = %v; output:\n%s", ruleCase, err, out)
@@ -203,11 +198,10 @@ func TestExactPrecomposedUTF8SelectorRunsLeaf(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestExactPrecomposedUTF8SelectorRunsLeaf$/^feature-café-pricing$/^scenario-réduit$", "-test.v")
-	cmd.Env = append(os.Environ(), "BDD_EXACT_UTF8_SELECTOR=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_EXACT_UTF8_SELECTOR=1", "-test.run=^TestExactPrecomposedUTF8SelectorRunsLeaf$/^feature-café-pricing$/^scenario-réduit$", "-test.v")
 	text := string(out)
 	if err != nil || strings.Count(text, "EXACT_PRECOMPOSED_UTF8_MARKER") != 1 || !strings.Contains(text, "TestExactPrecomposedUTF8SelectorRunsLeaf/feature-café-pricing/scenario-réduit") {
-		t.Fatalf("exact UTF-8 selector result = %v; args=%q; output:\n%s", err, cmd.Args, out)
+		t.Fatalf("exact UTF-8 selector result = %v; output:\n%s", err, out)
 	}
 }

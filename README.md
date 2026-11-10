@@ -3,9 +3,21 @@
 `github.com/jacoelho/bdd` provides a typed, inline BDD DSL over Go's standard
 `testing` package. It requires Go 1.27 or newer and has no dependencies.
 
+```sh
+go get github.com/jacoelho/bdd
+```
+
 ## Quick start
 
 ```go
+package cart_test
+
+import (
+	"testing"
+
+	"github.com/jacoelho/bdd"
+)
+
 type cartWorld struct {
 	items map[string]int
 	total int
@@ -43,14 +55,13 @@ TestCartPricing/feature-cart-pricing/scenario-item-total-is-calculated
 ```
 
 The Feature is the only grouping subtest. Every Scenario or Outline example
-is one direct child. Steps do not create subtests, so a selected scenario is
-atomic and uses one `testing.T` for setup, hooks, background, steps, cleanup,
-and context.
+is one direct child, called a leaf below. Steps do not create subtests, so a
+selected scenario is atomic and uses one `testing.T` for setup, hooks,
+background, steps, cleanup, and context.
 
 ## Public API
 
-The following is a conceptual signature block. The two chain result types are
-private; use the executable call patterns below rather than naming them.
+The exported API in outline:
 
 ```go
 func Feature[S any](t *testing.T, name string, setup func(testing.TB) S,
@@ -61,16 +72,19 @@ type Suite[S any] struct{}
 type ScenarioSpec[S any] struct{}
 
 func (s *Suite[S]) Before(Step[S])
-func (s *Suite[S]) Background(string, Step[S]) backgroundChain[S]
+func (s *Suite[S]) Background(string, Step[S]) BackgroundChain[S]
 func (s *Suite[S]) Rule(string, func(*Suite[S]), ...Option)
 func (s *Suite[S]) Scenario(string, func(*ScenarioSpec[S]), ...Option)
 func (s *Suite[S]) Outline[E any](string, []Example[E], func(E, *ScenarioSpec[S]), ...Option)
 
 func (s *ScenarioSpec[S]) Parallel()
 func (s *ScenarioSpec[S]) Before(Step[S])
-func (s *ScenarioSpec[S]) Given(string, Step[S]) scenarioChain[S]
-func (s *ScenarioSpec[S]) When(string, Step[S]) scenarioChain[S]
-func (s *ScenarioSpec[S]) Then(string, Step[S]) scenarioChain[S]
+func (s *ScenarioSpec[S]) Given(string, Step[S]) ScenarioChain[S]
+func (s *ScenarioSpec[S]) When(string, Step[S]) ScenarioChain[S]
+func (s *ScenarioSpec[S]) Then(string, Step[S]) ScenarioChain[S]
+
+type ScenarioChain[S any] struct{}   // Given, When, Then, And, But
+type BackgroundChain[S any] struct{} // And, But
 
 func Compose[S any](...Step[S]) Step[S]
 func Case[E any](string, E, ...Option) Example[E]
@@ -79,11 +93,11 @@ func Skip(string) Option
 func Pending(string) Option
 ```
 
-The chain result types are private, but their exported methods are available at
-the call site. A scenario has one linear narrative chain. `Given`, `When`, and
-`Then` are the three starters; every later keyword (`Given`, `When`, `Then`,
-`And`, or `But`) is called on the returned token. Keyword order and repetition
-are intentionally flexible, following the [Gherkin reference](https://cucumber.io/docs/gherkin/reference).
+A scenario has one linear narrative chain. `Given`, `When`, and `Then` are the
+three starters; every later keyword (`Given`, `When`, `Then`, `And`, or `But`)
+is called on the returned chain. Keyword order and repetition are
+intentionally flexible, following the
+[Gherkin reference](https://cucumber.io/docs/gherkin/reference).
 
 ```go
 chain := s.When("the request is received", receiveRequest())
@@ -92,14 +106,25 @@ chain = chain.Then("the response is successful", responseIsSuccessful())
 _ = chain.But("no error is reported", noError())
 ```
 
-Reassign every returned token when using a variable. Copying a token is
-harmless. Using a stale token while its builder is active fails through the
-owning declaration/test at the continuation call, with the issuing source and
-guidance to reassign the returned value. Using any token after its builder
-returns panics with the owner-sealed `bdd:` diagnostic. Ignoring the result of
-a single starter is valid. A second direct starter is rejected; use the
-returned chain instead. `Background` exposes only `And` and `But`, and the
-same reassignment rule applies:
+`ScenarioChain` and `BackgroundChain` are exported so helpers can accept and
+return a chain; obtain one only from a starter or `Background`, because the
+zero value panics:
+
+```go
+func audited(chain bdd.ScenarioChain[*cartWorld]) bdd.ScenarioChain[*cartWorld] {
+	return chain.Then("the order is audited", orderIsAudited())
+}
+```
+
+Reassign every returned chain when using a variable. Copying a chain is
+harmless. While its builder is active, using a chain that is not the latest
+fails the owning test at that call; the message names where the stale chain
+was issued and says to assign every returned value. Using any chain after its
+builder returns panics with the sealed-scope diagnostic described under
+[Declaration order](#declaration-order). Ignoring the result of a single
+starter is valid. A second direct starter is rejected; use the returned chain
+instead. `Background` exposes only `And` and `But`, and the same reassignment
+rule applies:
 
 ```go
 f.Background("the catalog is loaded", loadCatalog()).
@@ -108,15 +133,16 @@ f.Background("the catalog is loaded", loadCatalog()).
 ```
 
 `Compose` executes its components in order as one logged clause. It clones the
-component slice at construction, validates empty or nil components when it
-runs, and stops after a failure or skip. Fluent clauses remain individually
-logged operations.
+component slice at construction, fails an empty or nil component list when it
+runs (naming the `Compose` call site), and stops after a failure or skip.
+Fluent clauses remain individually logged operations.
 
 ## Rules and scenarios
 
-`Rule` is a logical, recursively nestable breadcrumb. It inherits outer hooks,
-background operations, and tags but does not create a test node. A nil Rule
-builder is legal only when a Skip or Pending option makes it non-executable:
+`Rule` groups scenarios and nests recursively. It adds a `rule-<slug>`
+breadcrumb to the generated test name and inherits outer hooks, background
+operations, and tags, but does not create a test node. A nil Rule builder is
+legal only when a Skip or Pending option makes it non-executable:
 
 ```go
 f.Rule("bulk discounts", func(r *bdd.Suite[*cartWorld]) {
@@ -129,11 +155,47 @@ f.Rule("bulk discounts", func(r *bdd.Suite[*cartWorld]) {
 })
 ```
 
-There is no `Context` compatibility path. Migrate a former Context to a
-nested Rule, then audit selectors and rename if its normalized slug collides
-with an existing sibling Rule. Empty active Features, Rules, Scenarios, and
-Outlines are structural errors. Builders declare behavior only; they must not
-perform application effects.
+Empty active Features, Rules, Scenarios, and Outlines are structural errors.
+Builders declare behavior only; they must not perform application effects.
+
+## Declaration order
+
+Each builder accepts its declarations in one order:
+
+```text
+Suite (Feature or Rule builder):
+  Before*  →  [Background [.And | .But]*]  →  (Scenario | Outline | Rule)+
+
+ScenarioSpec (Scenario or Outline builder):
+  (Parallel | Before)*  →  (Given | When | Then) [.Given | .When | .Then | .And | .But]*
+```
+
+Background is optional and a Suite declares at most one. A scenario declares
+`Parallel` at most once and has exactly one starter. A declaration out of
+order fails the owning test with its call site and the legal order:
+
+```text
+bdd: /src/cart_test.go:31: Before must be declared before Background; a Suite declares Before hooks, then one Background chain, then Scenario, Outline, and Rule children
+```
+
+While a Rule builder runs, its enclosing Suites are suspended, so a scenario
+cannot be filed outside the Rule it is written in. Declare on the builder's
+own parameter:
+
+```go
+f.Rule("bulk discounts", func(r *bdd.Suite[*cartWorld]) {
+	r.Scenario("the discount applies", discountApplies) // not f.Scenario
+})
+```
+
+Every scope is sealed when its builder returns. Using a Suite, ScenarioSpec,
+or chain token afterwards panics, naming the call site, the call, and the fix.
+The usual cause is declaring on the Suite from inside a Scenario builder, which
+runs later:
+
+```text
+bdd: /src/cart_test.go:40: Suite.Before called on a sealed Suite: its Feature or Rule builder has returned; declare inside that builder, and inside a Scenario builder declare on its *ScenarioSpec
+```
 
 ## Outlines and typed data
 
@@ -223,6 +285,15 @@ scenario builder → Parallel → setup → outer-to-inner Suite Before
 → context cancellation → Cleanup
 ```
 
+Log lines of a running scenario are attributed to the `bdd.Feature` call site.
+A scenario stopped by `Error`, `Fatal`, `Skip`, or panic during setup, a hook,
+or an operation logs, after its cleanups, the operation it stopped in, where
+that operation was declared, and the operations that did not run:
+
+```text
+bdd: scenario stopped in When "the customer adds two books" declared at /src/cart_test.go:27; not run: Then "the total is updated"
+```
+
 Setup, hooks, and steps must not type-assert `testing.TB` to create subtests or
 call `Parallel`; doing so breaks the atomicity contract. Callers remain
 responsible for state isolation and concurrency safety. `Setenv` and `Chdir`
@@ -230,8 +301,9 @@ retain standard testing restrictions below parallel ancestors.
 
 Scenario and Outline-example builders are lazy: they run only after their
 leaf is selected. A filtered or disposed leaf invokes no builder, setup, hook,
-background, step, or disposition callback. Therefore run exactly
-`go test ./...` after migration to discover declarations hidden by a selector.
+background, step, or disposition callback. Because an unselected builder does
+not run, its declaration errors stay hidden: after a migration, run
+`go test ./...` without a selector to find them.
 
 ## Names, tags, and selection
 
@@ -249,14 +321,14 @@ TestCartPricing/feature-café-pricing/@unit__rule-bulk__scenario-remise-appliqu�
 
 Names trim Unicode whitespace, lowercase rune by rune, preserve Unicode
 letters, numbers, and combining marks inside tokens, and collapse whitespace,
-`/`, punctuation, symbols, and controls to one ASCII `-`. `/` must be treated
-as a separator because Go uses it for subtest paths. Names and tags are not
+`/`, punctuation, symbols, and controls to one ASCII `-`. `/` is collapsed
+because Go uses it to separate subtest path components. Names and tags are not
 canonically normalized: precomposed and decomposed forms remain distinct.
 
-Tags omit `@`; each hyphen-separated segment starts with a Unicode letter or
-number and may contain Unicode letters, numbers, or combining marks. Tags are
-lowercased, inherited, deduplicated, and sorted by their normalized UTF-8
-strings (without NFC/NFD normalization).
+Pass tags without `@`; each hyphen-separated segment starts with a Unicode
+letter or number and may contain Unicode letters, numbers, or combining marks.
+Tags are lowercased, inherited, deduplicated, and sorted by their normalized
+UTF-8 strings (without NFC/NFD normalization).
 
 ```sh
 go test ./... -run='//(^|_)@unit(_|$)'
@@ -268,54 +340,38 @@ The last command selects the direct Scenario shown in Quick Start. The
 `@café` command demonstrates UTF-8 tag matching; a Feature named `Café
 pricing` would generate `feature-café-pricing`.
 
-`//tag` still executes matching top-level Go test bodies while they discover
-descendants. A standard Go zero-match run exits successfully. For isolation,
-use BDD-only packages or select the exact top-level test as in the last
-example.
+A selector that starts with `//` matches every top-level test, so each
+top-level test body still runs to discover its descendants. If nothing
+matches, `go test` still exits successfully. For isolation, use BDD-only
+packages or select the exact top-level test as in the last example.
 
 ## Skip and pending
 
 `Skip(reason)` and `Pending(reason)` are node options for Features, Rules,
-Scenarios, Outlines, and Cases. Reasons must be nonblank. A disposed Feature,
-Rule, or Scenario may use a nil builder after names/options have been
-validated; no user builder or setup code runs. A disposed Outline still
-registers every Case, and a Case option can override its Outline.
+Scenarios, Outlines, and Cases; a node with either option is disposed. Reasons
+must be nonblank. A disposed Feature, Rule, or Scenario may use a nil builder:
+its name and options are still validated, and no user builder or setup code
+runs. A disposed Outline still registers every Case, and a Case option can
+override its Outline.
 
-Dispositions are terminal direct children rather than skipped Feature
-barriers, so tags remain selectable. The terminal child reports `SKIP`; its
-Feature and top-level parents report `PASS`:
+A disposed node is registered as a skipped direct child of the Feature
+subtest, not as a skipped Feature, so its tags remain selectable. That child
+reports `SKIP`; the Feature subtest and the top-level test report `PASS`:
 
 ```text
 bdd: Feature "cart pricing" skipped: blocked by inventory service
 ```
 
-There is no `ScenarioSpec.Pending` operation. In the released v0.0.3 API,
-setup and all operations declared before `s.Pending` ran before the pending
-step. In the new API, a node option disposes the whole leaf, so split any
-independently valuable setup or behavior into another active Scenario:
-
-Before (v0.0.3):
-
-```go
-f.Scenario("pricing policy", func(s *bdd.ScenarioSpec[*cartWorld]) {
-	s.Given("the cart is ready", cartIsReady()).
-		And("pricing is undecided", pricingIsUndecided())
-	s.Pending("the policy is applied", "waiting for policy")
-})
-```
-
-After:
-
-```go
-f.Scenario("pricing policy is pending", nil, bdd.Pending("waiting for policy"))
-```
-
-No setup, prior operation, or builder operation runs for the disposed node.
+There is no `ScenarioSpec.Pending` operation. A node option disposes the whole
+leaf: no setup, prior operation, or builder operation runs for it. Split any
+independently valuable setup or behavior into another active Scenario.
+[Migration from the previous API](#migration-from-the-previous-api) shows the
+v0.0.3 equivalent.
 
 ## Migration from the previous API
 
-The first example is source truth for the immediate `7a3233f` migration branch
-API, not a released v0.0.3 API:
+The first example migrates from the unreleased API at commit `7a3233f`, not
+from the released v0.0.3 API:
 
 Before (`7a3233f` migration branch):
 
@@ -365,25 +421,49 @@ scenario chain, while `Suite.Background` returned nothing and `Context` was a
 public grouping method. The current API uses `Background(...).And(...)`,
 nested `Rule`, and a node-level `Pending` option.
 
+In v0.0.3, setup and all operations declared before `s.Pending` ran before the
+pending step. A node option now disposes the whole leaf:
+
+Before (v0.0.3):
+
+```go
+f.Scenario("pricing policy", func(s *bdd.ScenarioSpec[*cartWorld]) {
+	s.Given("the cart is ready", cartIsReady()).
+		And("pricing is undecided", pricingIsUndecided())
+	s.Pending("the policy is applied", "waiting for policy")
+})
+```
+
+After:
+
+```go
+f.Scenario("pricing policy is pending", nil, bdd.Pending("waiting for policy"))
+```
+
 The breaking migration also removes:
 
-- `StateFactory` (removed from v0.0.3); pass an ordinary unnamed
+- `StateFactory` (present in v0.0.3); pass an ordinary unnamed
   `func(testing.TB) S` setup callback. No `Setup` or `ScenarioSetup`
   compatibility aliases are introduced.
 - The top-level `Outline`; use `f.Outline(...)`.
 - `Noop`; use an ordinary typed `Step` closure.
 - `Suite.Tags`, `ScenarioSpec.Tags`, `ScenarioSpec.Background`, direct Suite or
   ScenarioSpec `And`/`But`, and `ScenarioSpec.Pending`.
-- `Suite.Context`; use nested `Rule` and update `context-` selectors to
-  `rule-`.
+- `Suite.Context`; there is no compatibility path. Use nested `Rule`, update
+  `context-` selectors to `rule-`, and rename the Rule if its normalized slug
+  collides with an existing sibling Rule.
 - `Example.Opts` and all other exported Example fields; construct rows with
   `Case` and do not mutate them through fields.
 
-Declaration methods are no longer chain-returning methods except for the two
-private fluent capabilities described above. Split multiple Features into
-separate top-level `Test...` functions because one direct top-level test owns
-one Feature.
+Declaration methods no longer return a chain, except `Background`, `Given`,
+`When`, and `Then`. Split multiple Features into separate top-level `Test...`
+functions because one direct top-level test owns one Feature.
 
 Step-created `Context`, `Cleanup`, and `TempDir` resources now live until
 scenario completion rather than until a step subtest completes. The framework
 does not add compatibility aliases or deferred Gherkin/Table APIs.
+
+## Architecture
+
+[ARCHITECTURE.md](ARCHITECTURE.md) records the state machines, their owners,
+and the design decisions behind them.

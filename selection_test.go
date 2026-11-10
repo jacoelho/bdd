@@ -2,7 +2,6 @@ package bdd
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -30,9 +29,8 @@ func TestExactLeafSelectionRunsOnlySelectedLifecycle(t *testing.T) {
 		return
 	}
 
-	selected := exec.Command(os.Args[0], "-test.run=^TestExactLeafSelectionRunsOnlySelectedLifecycle$/^feature-selection$/^@unit__scenario-selected$", "-test.v")
-	selected.Env = append(os.Environ(), "BDD_SELECTION_SUBPROCESS=1")
-	out, err := selected.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_SELECTION_SUBPROCESS=1", "-test.run=^TestExactLeafSelectionRunsOnlySelectedLifecycle$/^feature-selection$/^@unit__scenario-selected$", "-test.v")
 	text := string(out)
 	if err != nil || strings.Contains(text, "UNSELECTED_BUILDER") || strings.Contains(text, "DISPOSED_BUILDER") || strings.Contains(text, "disposed reason") {
 		t.Fatalf("selected leaf result = %v, output:\n%s", err, out)
@@ -43,9 +41,7 @@ func TestExactLeafSelectionRunsOnlySelectedLifecycle(t *testing.T) {
 		}
 	}
 
-	none := exec.Command(os.Args[0], "-test.run=^TestExactLeafSelectionRunsOnlySelectedLifecycle$/^feature-selection$/^@other__scenario-selected$", "-test.v")
-	none.Env = append(os.Environ(), "BDD_SELECTION_SUBPROCESS=1")
-	out, err = none.CombinedOutput()
+	out, err = runSelf(t, "BDD_SELECTION_SUBPROCESS=1", "-test.run=^TestExactLeafSelectionRunsOnlySelectedLifecycle$/^feature-selection$/^@other__scenario-selected$", "-test.v")
 	text = string(out)
 	if err != nil || strings.Contains(text, "SETUP") || strings.Contains(text, "SUITE_BEFORE") || strings.Contains(text, "SCENARIO_BEFORE") || strings.Contains(text, "BACKGROUND") || strings.Contains(text, "STEP") || strings.Contains(text, "UNSELECTED_BUILDER") || strings.Contains(text, "DISPOSED_BUILDER") || strings.Contains(text, "disposed reason") {
 		t.Fatalf("nonmatching selector result = %v, output:\n%s", err, out)
@@ -65,9 +61,8 @@ func TestStepTextSelectorDoesNotSelectScenario(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestStepTextSelectorDoesNotSelectScenario$/.*needle.*$")
-	cmd.Env = append(os.Environ(), "BDD_STEP_SELECTOR_SUBPROCESS=1")
-	if out, err := cmd.CombinedOutput(); err != nil {
+	t.Parallel()
+	if out, err := runSelf(t, "BDD_STEP_SELECTOR_SUBPROCESS=1", "-test.run=^TestStepTextSelectorDoesNotSelectScenario$/.*needle.*$"); err != nil {
 		t.Fatalf("step-text selector result = %v, output:\n%s", err, out)
 	}
 }
