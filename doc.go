@@ -44,12 +44,18 @@
 //
 // # Failure output
 //
-// Log lines of a running scenario are attributed to the Feature call site. A
-// scenario stopped by Error, Fatal, Skip, or panic during setup, a hook, or an
-// operation logs the operation it stopped in, where that operation was
-// declared, and the operations that did not run:
+// With -v, or when it fails, a scenario prints its narrative: its title, then
+// each hook and operation as it starts. Every line ends with the file and line
+// that declared it. A scenario stopped by Error, Fatal, Skip, or panic during
+// setup, a hook, or an operation then reports the operation it stopped in,
+// where that operation was declared, and the operations that did not run:
 //
-//	bdd: scenario stopped in When "the customer adds two books" declared at /src/cart_test.go:27; not run: Then "the total is updated"
+//	Scenario: two books cost 2000       # cart_test.go:34
+//	  Given an empty cart               # cart_test.go:35
+//	  When the customer adds two books  # cart_test.go:38
+//	  Then the total is 2000            # cart_test.go:41
+//	cart_test.go:43: total = 2700; want 2000
+//	bdd: scenario stopped in Then "the total is 2000" declared at cart_test.go:41; not run: And "the cart holds only books"
 //
 // Declaration errors have the form "bdd: <file>:<line>: <problem>".
 //

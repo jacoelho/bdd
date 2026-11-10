@@ -204,10 +204,10 @@ func TestStoppedScenarioReportsStoppingOperationAndRemainder(t *testing.T) {
 				if source == nil {
 					t.Fatalf("output lacks marker %q:\n%s", tc.marker, out)
 				}
-				prefix, suffix = prefix+" declared at ", "/"+source[1]+tc.notRun
+				prefix, suffix = prefix+" declared at ", source[1]+tc.notRun
 			}
-			if got := reports[0]; !strings.HasPrefix(got, prefix) || !strings.HasSuffix(got, suffix) || (tc.marker == "" && got != prefix+suffix) {
-				t.Fatalf("stop report = %q; want %q ... %q", got, prefix, suffix)
+			if got := strings.TrimSpace(reports[0]); got != prefix+suffix {
+				t.Fatalf("stop report = %q; want %q", got, prefix+suffix)
 			}
 		})
 	}

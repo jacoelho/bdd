@@ -32,8 +32,9 @@ func TestStepFailureReportsStepLineWithoutHelper(t *testing.T) {
 	if !strings.Contains(got, "helper_tb_test.go") {
 		t.Fatalf("output missing user step file:\n%s", got)
 	}
-	// Log lines of a running scenario are attributed to the Feature call site.
-	if !regexp.MustCompile(`helper_tb_test\.go:\d+: Then: the step fails`).MatchString(got) {
-		t.Fatalf("framework log line is not attributed to the user's test file:\n%s", got)
+	// The narrative carries no framework source: its line names the step's
+	// declaration site instead.
+	if !regexp.MustCompile(`(?m)^\s*Then the step fails\s+# helper_tb_test\.go:\d+$`).MatchString(got) {
+		t.Fatalf("narrative line does not name the step's declaration site:\n%s", got)
 	}
 }

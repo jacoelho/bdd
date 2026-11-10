@@ -8,6 +8,7 @@ Builders declare only: no setup, hook, or step runs during declaration.
 | --- | --- |
 | `suite.go` | `Feature`, `Suite` declaration grammar, leaf registration, leaf execution |
 | `scenario.go` | `ScenarioSpec` declaration grammar, the `step` operation |
+| `narrative.go` | output of a running scenario: narrative lines and the stop report |
 | `chains.go` | `ScenarioChain`, `BackgroundChain`: tokens returned by `Background`, `Given`, `When`, `Then` |
 | `outline.go` | `Example`, `Case`, expansion of an Outline into leaves |
 | `options.go` | `Option` constructors, `meta` (tags and disposition) |
@@ -63,7 +64,7 @@ active:    builder → Parallel → setup → Suite Before (outer to inner)
 
 Hooks, Background clauses, and visible clauses are one `step` type run as one
 ordered sequence. `Error`, `Fatal`, `Skip`, or panic stops the stages after
-it; a `Cleanup` registered before setup then logs the stop report.
+it; a deferred call then prints the stop report.
 
 ### Disposition: `meta` in `options.go`
 
@@ -100,9 +101,12 @@ by `Cleanup`.
 - **Runtime ordering checks, not typestate.** Encoding the order in distinct
   builder types would change the exported builder signatures and still could
   not order separate statements on one receiver.
-- **Stop report through `Cleanup`, not `defer`.** A deferred log during
-  `Goexit` is attributed to a runtime frame; a cleanup is attributed to the
-  frame that registered it, and it runs after `Fatal`, `Skip`, and panic.
+- **The narrative is written through `testing.T.Output`, not `Log`.** `Log`
+  prefixes every line with the file and line of the framework's caller, which
+  is the same `Feature` call for every line. `Output` adds no prefix, so each
+  line carries the site that declared it, and it still interleaves with the
+  user's own `Log` lines. The stop report uses the same stream from a `defer`,
+  so it follows the failure directly.
 - **Declaration errors are not helper-attributed.** They carry the call site
   in the message; marking every declaration frame as a helper would only
   repeat it.

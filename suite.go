@@ -18,6 +18,11 @@ func (c crumb) name() string {
 	return c.kind + "-" + c.slug
 }
 
+// title is the crumb as people read it, such as "Scenario: two books".
+func (c crumb) title() string {
+	return strings.ToUpper(c.kind[:1]) + c.kind[1:] + ": " + c.raw
+}
+
 type featurePlan[S any] struct {
 	setup  func(testing.TB) S
 	leaves []*leaf[S]
@@ -42,7 +47,7 @@ func newFeaturePlan[S any](setup func(testing.TB) S) *featurePlan[S] {
 // of an active leaf.
 type leaf[S any] struct {
 	name       string
-	breadcrumb string
+	crumbs     []crumb
 	source     string
 	meta       meta
 	before     []step[S]
@@ -181,9 +186,9 @@ func Feature[S any](t *testing.T, name string, setup func(testing.TB) S, build f
 		t.Fatalf("bdd: %s: %v", where, err)
 	}
 
-	// Every framework frame between a log call and the user's test function
-	// is marked as a helper, so framework output is attributed to the
-	// Feature call site rather than to this package.
+	// Every framework frame between the user's test function and a leaf is
+	// marked as a helper, so a framework Skip or Fatal in a leaf is attributed
+	// to the Feature call site rather than to this package.
 	t.Run("feature-"+featureSlug, func(featureT *testing.T) {
 		featureT.Helper()
 		if m.hasDisposition() {
@@ -389,10 +394,10 @@ func (s *Suite[S]) addLeaf(where string, crumbs []crumb, m meta, build func(*Sce
 	s.feature.seen[key] = where
 	s.feature.names[name] = where
 	leaf := &leaf[S]{
-		name:       name,
-		breadcrumb: rawBreadcrumb(crumbs),
-		source:     where,
-		meta:       m,
+		name:   name,
+		crumbs: crumbs,
+		source: where,
+		meta:   m,
 	}
 	if !m.hasDisposition() {
 		leaf.build = build
@@ -417,10 +422,11 @@ func breadcrumbKey(crumbs []crumb) string {
 	return strings.Join(parts, "__")
 }
 
-func rawBreadcrumb(crumbs []crumb) string {
+// breadcrumb joins crumb titles, such as "Rule: bulk > Scenario: two books".
+func breadcrumb(crumbs []crumb) string {
 	parts := make([]string, 0, len(crumbs))
 	for _, crumb := range crumbs {
-		parts = append(parts, crumb.kind+": "+crumb.raw)
+		parts = append(parts, crumb.title())
 	}
 	return strings.Join(parts, " > ")
 }
@@ -454,14 +460,13 @@ func (s *Suite[S]) failfAt(where, format string, args ...any) {
 //	           -> Background -> visible operations
 //
 // Error, Fatal, Skip, or panic in any stage stops the stages after it. A
-// scenario that stops after its builder has run logs the operation it stopped
-// in and the operations that did not run.
+// scenario that stops after its builder has run reports the operation it
+// stopped in and the operations that did not run.
 func (p *featurePlan[S]) runLeaf(t *testing.T, leaf *leaf[S]) {
 	t.Helper()
 	if leaf.meta.hasDisposition() {
-		t.Skip(leaf.meta.diagnostic(leaf.breadcrumb))
+		t.Skip(leaf.meta.diagnostic(breadcrumb(leaf.crumbs)))
 	}
-	t.Log(leaf.breadcrumb)
 	spec := newScenarioSpec[S](t)
 	func() {
 		defer spec.seal()
@@ -478,28 +483,26 @@ func (p *featurePlan[S]) runLeaf(t *testing.T, leaf *leaf[S]) {
 	}
 
 	operations := slices.Concat(leaf.before, spec.before, leaf.background, spec.steps)
-	current, done, completed := "Setup", 0, false
-	// Cleanup rather than defer: it also runs after Fatal, Skip, and panic,
-	// and testing attributes its log line to the Feature call site.
-	t.Cleanup(func() {
-		t.Helper()
-		if !completed {
-			t.Log(stopReport(current, operations[done:]))
-		}
-	})
+	ancestors, self := leaf.crumbs[:len(leaf.crumbs)-1], leaf.crumbs[len(leaf.crumbs)-1]
+	log := newNarrative(t.Output(), self.title(), operations)
+	if len(ancestors) > 0 {
+		fmt.Fprintln(log.out, breadcrumb(ancestors))
+	}
+	log.line(self.title(), leaf.source)
 
-	t.Logf("Setup: %s", leaf.breadcrumb)
+	stage, done, completed := "Setup", 0, false
+	defer func() {
+		if !completed {
+			stopped(log, stage, operations[done:])
+		}
+	}()
 	state := p.setup(t)
 	if halted(t) {
 		return
 	}
 	for i, operation := range operations {
-		current, done = operation.label()+" declared at "+operation.source, i+1
-		if operation.kind == kindBefore {
-			t.Logf("Before: %s", leaf.breadcrumb)
-		} else {
-			t.Logf("%s: %s", operation.kind, operation.text)
-		}
+		stage, done = operation.label()+" declared at "+site(operation.source), i+1
+		log.line(operation.narrate(), operation.source)
 		operation.fn(t, state)
 		if halted(t) {
 			return
@@ -511,16 +514,4 @@ func (p *featurePlan[S]) runLeaf(t *testing.T, leaf *leaf[S]) {
 // halted reports whether Error, Fatal, or Skip has stopped the test.
 func halted(t *testing.T) bool {
 	return t.Failed() || t.Skipped()
-}
-
-func stopReport[S any](current string, notRun []step[S]) string {
-	report := "bdd: scenario stopped in " + current
-	if len(notRun) == 0 {
-		return report
-	}
-	labels := make([]string, 0, len(notRun))
-	for _, operation := range notRun {
-		labels = append(labels, operation.label())
-	}
-	return report + "; not run: " + strings.Join(labels, ", ")
 }
