@@ -93,6 +93,9 @@ a leaf below. Steps do not create subtests, so a selected scenario is atomic
 and uses one `testing.T` for setup, hooks, background, steps, cleanup, and
 context.
 
+Call `Feature` directly from a top-level `Test` function, at most once in
+each: put a second Feature in its own `Test` function.
+
 ### 2. Reuse steps
 
 Move the mechanics into functions that return a `bdd.Step`, so the scenario
@@ -353,10 +356,6 @@ row. An Outline with a nil builder is allowed only when every effective Case
 is disposed; an active row always requires a builder. A nil Rule builder is
 legal only when a Skip or Pending option makes it non-executable.
 
-There is no `ScenarioSpec.Pending` operation.
-[Migration from the previous API](#migration-from-the-previous-api) shows the
-v0.0.3 equivalent.
-
 ### 8. Run scenarios in parallel
 
 `s.Parallel()` marks a scenario as safe to run in parallel with other tests.
@@ -503,8 +502,8 @@ call `Parallel`; doing so breaks the atomicity contract.
 Scenario and Outline-example builders are lazy: they run only after their
 leaf is selected. A filtered or disposed leaf invokes no builder, setup, hook,
 background, step, or disposition callback. Because an unselected builder does
-not run, its declaration errors stay hidden: after a migration, run
-`go test ./...` without a selector to find them.
+not run, its declaration errors stay hidden: run `go test ./...` without a
+selector to find them.
 
 ### Failure output
 
@@ -560,101 +559,6 @@ go test ./... -run='//(^|_)@café(_|$)'
 ```
 
 A Feature named `Café pricing` generates `feature-café-pricing`.
-
-## Migration from the previous API
-
-The first example migrates from the unreleased API at commit `7a3233f`, not
-from the released v0.0.3 API:
-
-Before (`7a3233f` migration branch):
-
-```go
-bdd.Feature(t, "cart pricing", newCartWorld, func(f *bdd.Suite[*cartWorld]) {
-	f.Background("an empty cart", emptyCart())
-	f.And("inventory is available", inventoryAvailable())
-	f.Scenario("discount applies", func(s *bdd.ScenarioSpec[*cartWorld]) {
-		s.Given("a premium customer", premiumCustomer())
-		s.When("three books are added", addBooks(3))
-		s.Then("the discount is applied", discountIsApplied())
-	})
-})
-```
-
-After:
-
-```go
-bdd.Feature(t, "cart pricing", newCartWorld, func(f *bdd.Suite[*cartWorld]) {
-	f.Background("an empty cart", emptyCart()).
-		And("inventory is available", inventoryIsAvailable())
-	f.Scenario("discount applies", func(s *bdd.ScenarioSpec[*cartWorld]) {
-		s.Given("a premium customer", premiumCustomer()).
-			When("three books are added", addBooks(3)).
-			Then("the discount is applied", discountIsApplied())
-	})
-})
-```
-
-For released v0.0.3 users, the relevant shapes were different:
-
-```go
-bdd.Feature(t, "cart pricing", newCartWorld, func(f *bdd.Suite[*cartWorld]) {
-	f.Background("an empty cart", emptyCart()) // returns nothing
-	f.Context("premium customer", func(c *bdd.Suite[*cartWorld]) {
-		c.Scenario("pricing policy", func(s *bdd.ScenarioSpec[*cartWorld]) {
-			s.Given("the cart is ready", cartIsReady()).
-				And("the customer is premium", premiumCustomer())
-			s.Pending("the discount is applied", "waiting for policy")
-		})
-	})
-})
-```
-
-In that release, `ScenarioSpec` fluent `And`/`But` continued the returned
-scenario chain, while `Suite.Background` returned nothing and `Context` was a
-public grouping method. The current API uses `Background(...).And(...)`,
-nested `Rule`, and a node-level `Pending` option.
-
-In v0.0.3, setup and all operations declared before `s.Pending` ran before the
-pending step. A node option now disposes the whole leaf:
-
-Before (v0.0.3):
-
-```go
-f.Scenario("pricing policy", func(s *bdd.ScenarioSpec[*cartWorld]) {
-	s.Given("the cart is ready", cartIsReady()).
-		And("pricing is undecided", pricingIsUndecided())
-	s.Pending("the policy is applied", "waiting for policy")
-})
-```
-
-After:
-
-```go
-f.Scenario("pricing policy is pending", nil, bdd.Pending("waiting for policy"))
-```
-
-The breaking migration also removes:
-
-- `StateFactory` (present in v0.0.3); pass an ordinary unnamed
-  `func(testing.TB) S` setup callback. No `Setup` or `ScenarioSetup`
-  compatibility aliases are introduced.
-- The top-level `Outline`; use `f.Outline(...)`.
-- `Noop`; use an ordinary typed `Step` closure.
-- `Suite.Tags`, `ScenarioSpec.Tags`, `ScenarioSpec.Background`, direct Suite or
-  ScenarioSpec `And`/`But`, and `ScenarioSpec.Pending`.
-- `Suite.Context`; there is no compatibility path. Use nested `Rule`, update
-  `context-` selectors to `rule-`, and rename the Rule if its normalized slug
-  collides with an existing sibling Rule.
-- `Example.Opts` and all other exported Example fields; construct rows with
-  `Case` and do not mutate them through fields.
-
-Declaration methods no longer return a chain, except `Background`, `Given`,
-`When`, and `Then`. Split multiple Features into separate top-level `Test...`
-functions because one direct top-level test owns one Feature.
-
-Step-created `Context`, `Cleanup`, and `TempDir` resources now live until
-scenario completion rather than until a step subtest completes. The framework
-does not add compatibility aliases or deferred Gherkin/Table APIs.
 
 ## Architecture
 
