@@ -9,6 +9,7 @@ import (
 type Step[S any] func(t testing.TB, state S)
 
 const (
+	kindBefore     stepKind = "Before"
 	kindBackground stepKind = "Background"
 	kindGiven      stepKind = "Given"
 	kindWhen       stepKind = "When"
@@ -28,17 +29,21 @@ func NewNoState(_ testing.TB) NoState {
 }
 
 // Compose returns one step from many smaller steps. It is useful for reusable
-// domain fixtures such as LoggedInPremiumCustomer().
+// domain fixtures such as LoggedInPremiumCustomer(). The components run in
+// order and stop after a failure or skip. Compose has no test to fail, so an
+// empty or nil component list fails the composed step when it runs, naming the
+// Compose call site.
 func Compose[S any](steps ...Step[S]) Step[S] {
+	where := declarationSource()
 	steps = slices.Clone(steps)
 	return func(t testing.TB, state S) {
 		t.Helper()
 		if len(steps) == 0 {
-			t.Fatal("bdd: Compose requires at least one step")
+			t.Fatalf("bdd: %s: Compose requires at least one step", where)
 		}
 		for _, step := range steps {
 			if step == nil {
-				t.Fatal("bdd: Compose received a nil step")
+				t.Fatalf("bdd: %s: Compose received a nil step", where)
 			}
 			step(t, state)
 			if t.Failed() || t.Skipped() {

@@ -2,7 +2,7 @@ package bdd
 
 import (
 	"os"
-	"os/exec"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -16,10 +16,9 @@ func TestComposeRejectsEmptyStepList(t *testing.T) {
 		step(t, NoState{})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestComposeRejectsEmptyStepList$")
-	cmd.Env = append(os.Environ(), "BDD_COMPOSE_EMPTY_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
-	if err == nil || !strings.Contains(string(out), "Compose requires at least one step") {
+	t.Parallel()
+	out, err := runSelf(t, "BDD_COMPOSE_EMPTY_SUBPROCESS=1")
+	if err == nil || !regexp.MustCompile(`bdd: \S*compose_test\.go:\d+: Compose requires at least one step`).Match(out) {
 		t.Fatalf("empty Compose result = %v\n%s", err, out)
 	}
 }
@@ -33,11 +32,10 @@ func TestComposeRejectsNilComponentWithoutRunningLaterComponents(t *testing.T) {
 		step(t, NoState{})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestComposeRejectsNilComponentWithoutRunningLaterComponents$")
-	cmd.Env = append(os.Environ(), "BDD_COMPOSE_NIL_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_COMPOSE_NIL_SUBPROCESS=1")
 	text := string(out)
-	if err == nil || !strings.Contains(text, "Compose received a nil step") || strings.Contains(text, "later component ran") {
+	if err == nil || !regexp.MustCompile(`bdd: \S*compose_test\.go:\d+: Compose received a nil step`).MatchString(text) || strings.Contains(text, "later component ran") {
 		t.Fatalf("nil Compose result = %v\n%s", err, out)
 	}
 }

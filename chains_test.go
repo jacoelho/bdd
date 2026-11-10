@@ -2,7 +2,7 @@ package bdd
 
 import (
 	"os"
-	"os/exec"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -21,11 +21,11 @@ func TestZeroChainTokensFailImmediately(t *testing.T) {
 	}
 
 	assertPanic("bdd: chain token is zero", func() {
-		var chain scenarioChain[NoState]
+		var chain ScenarioChain[NoState]
 		chain.And("and", func(testing.TB, NoState) {})
 	})
 	assertPanic("bdd: chain token is zero", func() {
-		var chain backgroundChain[NoState]
+		var chain BackgroundChain[NoState]
 		chain.But("but", func(testing.TB, NoState) {})
 	})
 }
@@ -45,9 +45,8 @@ func TestCopiedChainTokenFailsBeforeAppending(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestCopiedChainTokenFailsBeforeAppending$")
-	cmd.Env = append(os.Environ(), "BDD_STALE_CHAIN_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_STALE_CHAIN_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "stale scenario chain token") || !strings.Contains(string(out), "chains_test.go:") || strings.Contains(string(out), "STALE_SETUP_RAN") {
 		t.Fatalf("stale chain result = %v; output:\n%s", err, out)
 	}
@@ -69,9 +68,8 @@ func TestCopiedBackgroundTokenFailsBeforeAppending(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestCopiedBackgroundTokenFailsBeforeAppending$")
-	cmd.Env = append(os.Environ(), "BDD_STALE_BACKGROUND_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_STALE_BACKGROUND_SUBPROCESS=1")
 	text := string(out)
 	if err == nil || !strings.Contains(text, "stale Background chain token") || strings.Count(text, "chains_test.go:") < 2 || !strings.Contains(text, "assign every returned chain value") || strings.Contains(text, "STALE_BACKGROUND_SETUP_RAN") {
 		t.Fatalf("stale Background result = %v; output:\n%s", err, out)
@@ -92,9 +90,8 @@ func TestSecondScenarioStarterReportsBothDeclarationKinds(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestSecondScenarioStarterReportsBothDeclarationKinds$")
-	cmd.Env = append(os.Environ(), "BDD_SECOND_STARTER_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_SECOND_STARTER_SUBPROCESS=1")
 	text := string(out)
 	if err == nil || !strings.Contains(text, "scenario already started with Given") || !strings.Contains(text, "attempted second root When") || !strings.Contains(text, "continue it with the returned chain") || strings.Count(text, "chains_test.go:") < 2 || strings.Contains(text, "SECOND_ROOT_SETUP_RAN") {
 		t.Fatalf("second starter result = %v; output:\n%s", err, out)
@@ -102,22 +99,18 @@ func TestSecondScenarioStarterReportsBothDeclarationKinds(t *testing.T) {
 }
 
 func TestChainCannotEscapeScenarioBuilder(t *testing.T) {
-	var current, stale scenarioChain[NoState]
+	var current, stale ScenarioChain[NoState]
 	Feature(t, "chain lifetime", NewNoState, func(f *Suite[NoState]) {
 		f.Scenario("captures a chain", func(s *ScenarioSpec[NoState]) {
 			stale = s.Given("the operation", func(testing.TB, NoState) {})
 			current = stale.When("the second operation", func(testing.TB, NoState) {})
 		})
 	}, Tags("unit", "café"))
-	for name, chain := range map[string]scenarioChain[NoState]{"current": current, "stale": stale} {
-		name, chain := name, chain
+	for name, chain := range map[string]ScenarioChain[NoState]{"current": current, "stale": stale} {
 		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if got := recover(); got != "bdd: ScenarioSpec builder has returned" {
-					t.Fatalf("escaped %s chain panic = %v", name, got)
-				}
-			}()
-			chain.And("after the builder", func(testing.TB, NoState) {})
+			assertSealedPanic(t, "ScenarioChain.And", func() {
+				chain.And("after the builder", func(testing.TB, NoState) {})
+			})
 		})
 	}
 }
@@ -125,7 +118,7 @@ func TestChainCannotEscapeScenarioBuilder(t *testing.T) {
 func TestSuiteChainCannotEscapeBuilder(t *testing.T) {
 	var suite *Suite[NoState]
 	var group *Suite[NoState]
-	var currentBackground, staleBackground backgroundChain[NoState]
+	var currentBackground, staleBackground BackgroundChain[NoState]
 	Feature(t, "suite lifetime", NewNoState, func(f *Suite[NoState]) {
 		suite = f
 		staleBackground = f.Background("the background", func(testing.TB, NoState) {})
@@ -137,41 +130,46 @@ func TestSuiteChainCannotEscapeBuilder(t *testing.T) {
 			})
 		})
 	}, Tags("unit", "café"))
-	for name, call := range map[string]func(){
-		"root":               func() { suite.Before(func(testing.TB, NoState) {}) },
-		"group":              func() { group.Before(func(testing.TB, NoState) {}) },
-		"current Background": func() { currentBackground.And("after the builder", func(testing.TB, NoState) {}) },
-		"stale Background":   func() { staleBackground.But("after the builder", func(testing.TB, NoState) {}) },
+	for name, tc := range map[string]struct {
+		operation string
+		call      func()
+	}{
+		"root":               {"Suite.Before", func() { suite.Before(func(testing.TB, NoState) {}) }},
+		"group":              {"Suite.Before", func() { group.Before(func(testing.TB, NoState) {}) }},
+		"current Background": {"BackgroundChain.And", func() { currentBackground.And("after the builder", func(testing.TB, NoState) {}) }},
+		"stale Background":   {"BackgroundChain.But", func() { staleBackground.But("after the builder", func(testing.TB, NoState) {}) }},
 	} {
-		name, call := name, call
-		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if got := recover(); got != "bdd: Suite builder has returned" {
-					t.Fatalf("escaped %s Suite panic = %v", name, got)
-				}
-			}()
-			call()
-		})
+		t.Run(name, func(t *testing.T) { assertSealedPanic(t, tc.operation, tc.call) })
 	}
 }
 
-func TestAbruptBuilderTerminationSealsChainOwners(t *testing.T) {
-	assertPanic := func(name, want string, call func()) {
+// assertSealedPanic requires call to panic with the sealed-scope diagnostic:
+// the call site, the operation that was attempted, and the scope that owns it.
+func assertSealedPanic(t testing.TB, operation string, call func()) {
+	t.Helper()
+	scope := "ScenarioSpec"
+	if strings.HasPrefix(operation, "Suite.") || strings.HasPrefix(operation, "BackgroundChain.") {
+		scope = "Suite"
+	}
+	want := regexp.MustCompile(`^bdd: \S*_test\.go:\d+: ` + regexp.QuoteMeta(operation) + ` called on a sealed ` + scope + `: `)
+	defer func() {
 		t.Helper()
-		t.Run(name, func(t *testing.T) {
-			defer func() {
-				if got := recover(); got != want {
-					t.Fatalf("panic = %v; want %q", got, want)
-				}
-			}()
-			call()
-		})
+		if got, _ := recover().(string); !want.MatchString(got) {
+			t.Fatalf("panic = %q; want match for %s", got, want)
+		}
+	}()
+	call()
+}
+
+func TestAbruptBuilderTerminationSealsChainOwners(t *testing.T) {
+	assertPanic := func(name, operation string, call func()) {
+		t.Helper()
+		t.Run(name, func(t *testing.T) { assertSealedPanic(t, operation, call) })
 	}
 
 	t.Run("panic", func(t *testing.T) {
-		plan := &featurePlan[NoState]{seen: make(map[string]string), names: make(map[string]string), rules: make(map[string]string)}
-		suite := &Suite[NoState]{feature: plan, owner: t}
-		var stale, current backgroundChain[NoState]
+		suite := newSuite(newFeaturePlan(NewNoState), t, nil)
+		var stale, current BackgroundChain[NoState]
 		func() {
 			defer suite.seal()
 			defer func() {
@@ -183,15 +181,15 @@ func TestAbruptBuilderTerminationSealsChainOwners(t *testing.T) {
 			current = stale.And("the continuation", func(testing.TB, NoState) {})
 			panic("builder panic")
 		}()
-		assertPanic("suite current token", "bdd: Suite builder has returned", func() {
+		assertPanic("suite current token", "BackgroundChain.And", func() {
 			current.And("after the panic", func(testing.TB, NoState) {})
 		})
-		assertPanic("suite stale token", "bdd: Suite builder has returned", func() {
+		assertPanic("suite stale token", "BackgroundChain.But", func() {
 			stale.But("after the panic", func(testing.TB, NoState) {})
 		})
 
-		spec := &ScenarioSpec[NoState]{owner: t}
-		var staleScenario, currentScenario scenarioChain[NoState]
+		spec := newScenarioSpec[NoState](t)
+		var staleScenario, currentScenario ScenarioChain[NoState]
 		func() {
 			defer spec.seal()
 			defer func() {
@@ -203,18 +201,17 @@ func TestAbruptBuilderTerminationSealsChainOwners(t *testing.T) {
 			currentScenario = staleScenario.When("the second operation", func(testing.TB, NoState) {})
 			panic("scenario builder panic")
 		}()
-		assertPanic("scenario current token", "bdd: ScenarioSpec builder has returned", func() {
+		assertPanic("scenario current token", "ScenarioChain.And", func() {
 			currentScenario.And("after the panic", func(testing.TB, NoState) {})
 		})
-		assertPanic("scenario stale token", "bdd: ScenarioSpec builder has returned", func() {
+		assertPanic("scenario stale token", "ScenarioChain.But", func() {
 			staleScenario.But("after the panic", func(testing.TB, NoState) {})
 		})
 	})
 
 	t.Run("Goexit seals Suite", func(t *testing.T) {
-		plan := &featurePlan[NoState]{seen: make(map[string]string), names: make(map[string]string), rules: make(map[string]string)}
-		suite := &Suite[NoState]{feature: plan, owner: t}
-		var stale, current backgroundChain[NoState]
+		suite := newSuite(newFeaturePlan(NewNoState), t, nil)
+		var stale, current BackgroundChain[NoState]
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -228,17 +225,17 @@ func TestAbruptBuilderTerminationSealsChainOwners(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for Suite builder Goexit")
 		}
-		assertPanic("Goexit current Background token", "bdd: Suite builder has returned", func() {
+		assertPanic("Goexit current Background token", "BackgroundChain.And", func() {
 			current.And("after Goexit", func(testing.TB, NoState) {})
 		})
-		assertPanic("Goexit stale Background token", "bdd: Suite builder has returned", func() {
+		assertPanic("Goexit stale Background token", "BackgroundChain.But", func() {
 			stale.But("after Goexit", func(testing.TB, NoState) {})
 		})
 	})
 
 	t.Run("Goexit seals ScenarioSpec", func(t *testing.T) {
-		spec := &ScenarioSpec[NoState]{owner: t}
-		var stale, current scenarioChain[NoState]
+		spec := newScenarioSpec[NoState](t)
+		var stale, current ScenarioChain[NoState]
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
@@ -252,10 +249,10 @@ func TestAbruptBuilderTerminationSealsChainOwners(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for ScenarioSpec builder Goexit")
 		}
-		assertPanic("Goexit current ScenarioSpec token", "bdd: ScenarioSpec builder has returned", func() {
+		assertPanic("Goexit current ScenarioSpec token", "ScenarioChain.And", func() {
 			current.And("after Goexit", func(testing.TB, NoState) {})
 		})
-		assertPanic("Goexit stale ScenarioSpec token", "bdd: ScenarioSpec builder has returned", func() {
+		assertPanic("Goexit stale ScenarioSpec token", "ScenarioChain.But", func() {
 			stale.But("after Goexit", func(testing.TB, NoState) {})
 		})
 	})

@@ -2,7 +2,6 @@ package bdd
 
 import (
 	"os"
-	"os/exec"
 	"reflect"
 	"strings"
 	"sync"
@@ -87,9 +86,8 @@ func TestScenarioSpecRequiresVisibleOperation(t *testing.T) {
 		})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestScenarioSpecRequiresVisibleOperation$")
-	cmd.Env = append(os.Environ(), "BDD_EMPTY_SCENARIO_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_EMPTY_SCENARIO_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "must contain at least one visible operation") || !strings.Contains(string(out), "api_test.go:") {
 		t.Fatalf("empty scenario result = %v, output:\n%s", err, out)
 	}
@@ -100,9 +98,8 @@ func TestEmptyFeatureIsRejected(t *testing.T) {
 		Feature(t, "empty feature", NewNoState, func(*Suite[NoState]) {})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestEmptyFeatureIsRejected$")
-	cmd.Env = append(os.Environ(), "BDD_EMPTY_FEATURE_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_EMPTY_FEATURE_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "must contain at least one Scenario or Outline example") {
 		t.Fatalf("empty Feature result = %v, output:\n%s", err, out)
 	}
@@ -115,9 +112,8 @@ func TestEmptyRuleIsRejected(t *testing.T) {
 		})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestEmptyRuleIsRejected$")
-	cmd.Env = append(os.Environ(), "BDD_EMPTY_GROUP_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_EMPTY_GROUP_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "Rule \"empty rule\" must contain") {
 		t.Fatalf("empty Rule result = %v, output:\n%s", err, out)
 	}
@@ -157,9 +153,8 @@ func TestPendingFeaturePlaceholderHasStablePath(t *testing.T) {
 		Feature(t, "pending feature", NewNoState, func(*Suite[NoState]) {}, Pending("waiting for policy"))
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestPendingFeaturePlaceholderHasStablePath$", "-test.v")
-	cmd.Env = append(os.Environ(), "BDD_PENDING_FEATURE_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_PENDING_FEATURE_SUBPROCESS=1", "-test.v")
 	text := string(out)
 	path := "TestPendingFeaturePlaceholderHasStablePath/feature-pending-feature/feature-pending-feature"
 	if err != nil || !strings.Contains(text, path) || !strings.Contains(text, "bdd: Feature \"pending feature\" pending: waiting for policy") || !strings.Contains(text, "--- SKIP: "+path) || !strings.Contains(text, "--- PASS: TestPendingFeaturePlaceholderHasStablePath/feature-pending-feature") {
@@ -177,9 +172,8 @@ func TestSkippedFeaturePlaceholderHasStableTaggedPath(t *testing.T) {
 		}, Skip("blocked by inventory"), Tags("unit"))
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestSkippedFeaturePlaceholderHasStableTaggedPath$", "-test.v")
-	cmd.Env = append(os.Environ(), "BDD_SKIPPED_FEATURE_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_SKIPPED_FEATURE_SUBPROCESS=1", "-test.v")
 	text := string(out)
 	path := "TestSkippedFeaturePlaceholderHasStableTaggedPath/feature-skipped-feature/@unit__feature-skipped-feature"
 	barrier := "TestSkippedFeaturePlaceholderHasStableTaggedPath/feature-skipped-feature"
@@ -201,9 +195,8 @@ func TestSetupErrorStopsHooksAndSteps(t *testing.T) {
 		})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestSetupErrorStopsHooksAndSteps$")
-	cmd.Env = append(os.Environ(), "BDD_SETUP_ERROR_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_SETUP_ERROR_SUBPROCESS=1")
 	text := string(out)
 	if err == nil || !strings.Contains(text, "setup failed") || strings.Contains(text, "hook ran") || strings.Contains(text, "step ran") {
 		t.Fatalf("setup error result = %v, output:\n%s", err, out)
@@ -375,9 +368,8 @@ func TestComposeStopsAfterFailedStep(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestComposeStopsAfterFailedStep$")
-	cmd.Env = append(os.Environ(), "BDD_COMPOSE_FAIL_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_COMPOSE_FAIL_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "stop") || strings.Contains(string(out), "second step ran") {
 		t.Fatalf("composed step result = %v, output:\n%s", err, out)
 	}
@@ -395,9 +387,8 @@ func TestGeneratedNamesRemainUTF8AndAtomic(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestGeneratedNamesRemainUTF8AndAtomic$", "-test.v")
-	cmd.Env = append(os.Environ(), "BDD_UTF8_PATH_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_UTF8_PATH_SUBPROCESS=1", "-test.v")
 	if err != nil {
 		t.Fatalf("UTF-8 path subprocess failed: %v\n%s", err, out)
 	}
@@ -432,14 +423,11 @@ func TestTagFilteringDoesNotBuildUnselectedLeaves(t *testing.T) {
 		}, Tags("unit"))
 		return
 	}
-	selected := exec.Command(os.Args[0], "-test.run=^TestTagFilteringDoesNotBuildUnselectedLeaves$/^feature-filtering$/^@unit__scenario-selected$")
-	selected.Env = append(os.Environ(), "BDD_FILTER_SUBPROCESS=1")
-	if out, err := selected.CombinedOutput(); err != nil {
+	t.Parallel()
+	if out, err := runSelf(t, "BDD_FILTER_SUBPROCESS=1", "-test.run=^TestTagFilteringDoesNotBuildUnselectedLeaves$/^feature-filtering$/^@unit__scenario-selected$"); err != nil {
 		t.Fatalf("selected tag result = %v, output:\n%s", err, out)
 	}
-	none := exec.Command(os.Args[0], "-test.run=^TestTagFilteringDoesNotBuildUnselectedLeaves$/^feature-filtering$/^@other__scenario-selected$")
-	none.Env = append(os.Environ(), "BDD_FILTER_SUBPROCESS=1")
-	if out, err := none.CombinedOutput(); err != nil {
+	if out, err := runSelf(t, "BDD_FILTER_SUBPROCESS=1", "-test.run=^TestTagFilteringDoesNotBuildUnselectedLeaves$/^feature-filtering$/^@other__scenario-selected$"); err != nil {
 		t.Fatalf("nonmatching tag result = %v, output:\n%s", err, out)
 	}
 }
@@ -460,9 +448,8 @@ func TestDuplicateGeneratedNamesFailBeforeSetup(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestDuplicateGeneratedNamesFailBeforeSetup$")
-	cmd.Env = append(os.Environ(), "BDD_DUPLICATE_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_DUPLICATE_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "duplicate semantic scenario identity") || strings.Count(string(out), "api_test.go:") < 2 || strings.Contains(string(out), "setup ran before") {
 		t.Fatalf("duplicate validation result = %v, output:\n%s", err, out)
 	}
@@ -471,15 +458,6 @@ func TestDuplicateGeneratedNamesFailBeforeSetup(t *testing.T) {
 func TestDeclarationScopesSealAtBuilderReturn(t *testing.T) {
 	var suite *Suite[NoState]
 	var group *Suite[NoState]
-	mustPanic := func(name string, fn func()) {
-		t.Helper()
-		defer func() {
-			if recover() == nil {
-				t.Fatalf("%s mutation did not panic", name)
-			}
-		}()
-		fn()
-	}
 	Feature(t, "sealed scopes", NewNoState, func(f *Suite[NoState]) {
 		suite = f
 		f.Rule("group", func(r *Suite[NoState]) {
@@ -491,10 +469,10 @@ func TestDeclarationScopesSealAtBuilderReturn(t *testing.T) {
 		f.Scenario("later", func(s *ScenarioSpec[NoState]) {
 			// The root and group builders have returned before this lazy body
 			// executes, so both declaration scopes must already be sealed.
-			mustPanic("root Suite", func() { suite.Before(func(testing.TB, NoState) {}) })
-			mustPanic("group Suite", func() { group.Before(func(testing.TB, NoState) {}) })
-			s.Then("runs after compilation", func(testing.TB, NoState) {
-				mustPanic("ScenarioSpec", func() { s.Then("late", func(testing.TB, NoState) {}) })
+			assertSealedPanic(t, "Suite.Before", func() { suite.Before(func(testing.TB, NoState) {}) })
+			assertSealedPanic(t, "Suite.Scenario", func() { group.Scenario("late", nil) })
+			s.Then("runs after compilation", func(t testing.TB, _ NoState) {
+				assertSealedPanic(t, "ScenarioSpec.Then", func() { s.Then("late", func(testing.TB, NoState) {}) })
 			})
 		})
 	})
@@ -552,9 +530,8 @@ func TestNestedFeatureIsRejected(t *testing.T) {
 		})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestNestedFeatureIsRejected$")
-	cmd.Env = append(os.Environ(), "BDD_NESTED_FEATURE_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_NESTED_FEATURE_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "direct top-level test") {
 		t.Fatalf("nested Feature result = %v, output:\n%s", err, out)
 	}
@@ -574,9 +551,8 @@ func TestSecondFeatureOnOneTestIsRejected(t *testing.T) {
 		})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestSecondFeatureOnOneTestIsRejected$")
-	cmd.Env = append(os.Environ(), "BDD_DUPLICATE_FEATURE_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_DUPLICATE_FEATURE_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "already registered") || strings.Count(string(out), "api_test.go:") < 2 {
 		t.Fatalf("duplicate Feature result = %v, output:\n%s", err, out)
 	}
@@ -609,9 +585,8 @@ func TestInvalidOptionsAreNotHiddenByDisposition(t *testing.T) {
 		Feature[NoState](t, "invalid options", NewNoState, func(*Suite[NoState]) {}, Skip("visible reason"), Option{})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestInvalidOptionsAreNotHiddenByDisposition$")
-	cmd.Env = append(os.Environ(), "BDD_INVALID_OPTION_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_INVALID_OPTION_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "zero option") {
 		t.Fatalf("invalid option result = %v, output:\n%s", err, out)
 	}
@@ -622,9 +597,8 @@ func TestNilSetupIsNotHiddenBySkip(t *testing.T) {
 		Feature[NoState](t, "nil setup", nil, func(*Suite[NoState]) {}, Skip("visible reason"))
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestNilSetupIsNotHiddenBySkip$")
-	cmd.Env = append(os.Environ(), "BDD_NIL_SETUP_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_NIL_SETUP_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "nil setup callback") {
 		t.Fatalf("nil setup result = %v, output:\n%s", err, out)
 	}
@@ -635,9 +609,8 @@ func TestBlankDispositionReasonIsRejected(t *testing.T) {
 		Feature(t, "blank reason", NewNoState, func(*Suite[NoState]) {}, Skip("  "))
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestBlankDispositionReasonIsRejected$")
-	cmd.Env = append(os.Environ(), "BDD_BLANK_REASON_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_BLANK_REASON_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "nonblank reason") {
 		t.Fatalf("blank reason result = %v, output:\n%s", err, out)
 	}

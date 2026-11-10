@@ -33,7 +33,7 @@ func (e Example[E]) clone() Example[E] {
 // Outline containing an active Case requires a builder.
 func (s *Suite[S]) Outline[E any](name string, examples []Example[E], build func(E, *ScenarioSpec[S]), opts ...Option) {
 	where := declarationSource()
-	s.declareChild()
+	s.declare(where, "Suite.Outline", declareChild)
 	if len(examples) == 0 {
 		s.failfAt(where, "Outline %q requires at least one example", name)
 	}
@@ -45,7 +45,9 @@ func (s *Suite[S]) Outline[E any](name string, examples []Example[E], build func
 	if err != nil {
 		s.failfAt(where, "invalid Outline %q options: %v", name, err)
 	}
-	outlineCrumbs := append(slices.Clone(s.breadcrumbs), crumb{kind: "outline", slug: slug, raw: name})
+	outlineCrumbs := s.crumbs("outline", slug, name)
+
+	// Every example is validated before any leaf is registered.
 	type preparedExample struct {
 		example Example[E]
 		meta    meta
@@ -63,17 +65,13 @@ func (s *Suite[S]) Outline[E any](name string, examples []Example[E], build func
 		}
 		// An explicit example disposition overrides the outline disposition;
 		// otherwise the inherited outline disposition remains in force.
-		var exampleMeta meta
+		inherited := outlineMeta
 		if hasDispositionOption(example.options) {
-			exampleMeta, err = (meta{tags: slices.Clone(outlineMeta.tags)}).with(example.options...)
-			if err != nil {
-				s.failfAt(example.source, "invalid Outline example %q options: %v", example.name, err)
-			}
-		} else {
-			exampleMeta, err = outlineMeta.with(example.options...)
-			if err != nil {
-				s.failfAt(example.source, "invalid Outline example %q options: %v", example.name, err)
-			}
+			inherited = meta{tags: outlineMeta.tags}
+		}
+		exampleMeta, err := inherited.with(example.options...)
+		if err != nil {
+			s.failfAt(example.source, "invalid Outline example %q options: %v", example.name, err)
 		}
 		crumbs := append(slices.Clone(outlineCrumbs), crumb{kind: "example", slug: exampleSlug, raw: example.name})
 		prepared = append(prepared, preparedExample{example: example, meta: exampleMeta, crumbs: crumbs})
@@ -86,24 +84,8 @@ func (s *Suite[S]) Outline[E any](name string, examples []Example[E], build func
 		}
 	}
 	for _, item := range prepared {
-		example := item.example
-		exampleMeta := item.meta
-		crumbs := item.crumbs
-		exampleBuild := build
-		exampleValue := example.value
-		s.addLeaf(&leaf[S]{
-			name:       s.leafName(crumbs, exampleMeta.tags),
-			key:        breadcrumbKey(crumbs),
-			breadcrumb: rawBreadcrumb(crumbs),
-			diagnostic: dispositionDiagnostic(rawBreadcrumb(crumbs), exampleMeta),
-			meta:       exampleMeta,
-			before:     slices.Clone(s.before),
-			background: slices.Clone(s.background),
-			build: func(spec *ScenarioSpec[S]) {
-				exampleBuild(exampleValue, spec)
-			},
-			state:  s.feature,
-			source: example.source,
+		s.addLeaf(item.example.source, item.crumbs, item.meta, func(spec *ScenarioSpec[S]) {
+			build(item.example.value, spec)
 		})
 	}
 }

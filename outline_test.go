@@ -2,7 +2,6 @@ package bdd
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 )
@@ -15,9 +14,8 @@ func TestOutlineRequiresExamples(t *testing.T) {
 		return
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=^TestOutlineRequiresExamples$")
-	cmd.Env = append(os.Environ(), "BDD_EMPTY_OUTLINE_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_EMPTY_OUTLINE_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "requires at least one example") || !strings.Contains(string(out), "outline_test.go:") {
 		t.Fatalf("empty outline result = %v, output:\n%s", err, out)
 	}
@@ -30,9 +28,8 @@ func TestOutlineRejectsZeroExample(t *testing.T) {
 		})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestOutlineRejectsZeroExample$")
-	cmd.Env = append(os.Environ(), "BDD_ZERO_EXAMPLE_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_ZERO_EXAMPLE_SUBPROCESS=1")
 	if err == nil || !strings.Contains(string(out), "use bdd.Case") || !strings.Contains(string(out), "outline_test.go:") {
 		t.Fatalf("zero Example result = %v; output:\n%s", err, out)
 	}
@@ -93,9 +90,8 @@ func TestDisposedOutlineRegistersEveryExample(t *testing.T) {
 		})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestDisposedOutlineRegistersEveryExample$", "-test.v")
-	cmd.Env = append(os.Environ(), "BDD_DISPOSED_OUTLINE_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_DISPOSED_OUTLINE_SUBPROCESS=1", "-test.v")
 	if err != nil || !strings.Contains(string(out), "example-first") || !strings.Contains(string(out), "example-second") || strings.Contains(string(out), "disposed outline builder ran") {
 		t.Fatalf("disposed outline result = %v, output:\n%s", err, out)
 	}
@@ -112,9 +108,8 @@ func TestExampleDispositionOverridesOutlineReason(t *testing.T) {
 		})
 		return
 	}
-	cmd := exec.Command(os.Args[0], "-test.run=^TestExampleDispositionOverridesOutlineReason$", "-test.v")
-	cmd.Env = append(os.Environ(), "BDD_EXAMPLE_DISPOSITION_SUBPROCESS=1")
-	out, err := cmd.CombinedOutput()
+	t.Parallel()
+	out, err := runSelf(t, "BDD_EXAMPLE_DISPOSITION_SUBPROCESS=1", "-test.v")
 	text := string(out)
 	if err != nil || !strings.Contains(text, "pending: case reason") || strings.Contains(text, "outline reason: outline reason") || strings.Contains(text, "disposed example builder ran") {
 		t.Fatalf("example disposition result = %v, output:\n%s", err, out)
