@@ -70,17 +70,17 @@ func TestFirstScenario(t *testing.T) {
 }
 ```
 
-`go test -v -run TestFirstScenario` prints:
+`go test -v -run TestFirstScenario` prints the narrative. Each line ends with
+the file and line that declared it:
 
 ```text
 === RUN   TestFirstScenario
 === RUN   TestFirstScenario/feature-cart
 === RUN   TestFirstScenario/feature-cart/scenario-two-books-cost-2000
-    cart_test.go:33: scenario: two books cost 2000
-    cart_test.go:33: Setup: scenario: two books cost 2000
-    cart_test.go:33: Given: an empty cart
-    cart_test.go:33: When: the customer adds two books
-    cart_test.go:33: Then: the total is 2000
+    Scenario: two books cost 2000       # cart_test.go:34
+      Given an empty cart               # cart_test.go:35
+      When the customer adds two books  # cart_test.go:38
+      Then the total is 2000            # cart_test.go:41
 --- PASS: TestFirstScenario (0.00s)
     --- PASS: TestFirstScenario/feature-cart (0.00s)
         --- PASS: TestFirstScenario/feature-cart/scenario-two-books-cost-2000 (0.00s)
@@ -324,8 +324,8 @@ func TestSkipAndPending(t *testing.T) {
 ```
 
 ```text
-    cart_test.go:167: bdd: scenario: gift cards reduce the total pending: gift cards are not designed yet
-    cart_test.go:167: bdd: rule: refunds skipped: blocked by the payment sandbox
+    cart_test.go:167: bdd: Scenario: gift cards reduce the total pending: gift cards are not designed yet
+    cart_test.go:167: bdd: Rule: refunds skipped: blocked by the payment sandbox
 --- PASS: TestSkipAndPending (0.00s)
     --- PASS: TestSkipAndPending/feature-checkout (0.00s)
         --- PASS: TestSkipAndPending/feature-checkout/scenario-the-cart-total-is-shown (0.00s)
@@ -508,14 +508,27 @@ not run, its declaration errors stay hidden: after a migration, run
 
 ### Failure output
 
-Log lines of a running scenario are attributed to the `bdd.Feature` call site.
-A scenario stopped by `Error`, `Fatal`, `Skip`, or panic during setup, a hook,
-or an operation logs, after its cleanups, the operation it stopped in, where
-that operation was declared, and the operations that did not run:
+With `-v`, or when it fails, a scenario prints its narrative: its Rules or
+Outline on one line when it has any, its title, then each hook and operation
+as it starts. Every line ends with the file and line that declared it. A
+scenario stopped by `Error`, `Fatal`, `Skip`, or panic during setup, a hook,
+or an operation then reports the operation it stopped in, where that operation
+was declared, and the operations that did not run:
 
 ```text
-bdd: scenario stopped in When "the customer adds two books" declared at /src/cart_test.go:27; not run: Then "the total is updated"
+--- FAIL: TestFirstScenario (0.00s)
+    --- FAIL: TestFirstScenario/feature-cart (0.00s)
+        --- FAIL: TestFirstScenario/feature-cart/scenario-two-books-cost-2000 (0.00s)
+            Scenario: two books cost 2000       # cart_test.go:34
+              Given an empty cart               # cart_test.go:35
+              When the customer adds two books  # cart_test.go:38
+              Then the total is 2000            # cart_test.go:41
+            cart_test.go:43: total = 2700; want 2000
+            bdd: scenario stopped in Then "the total is 2000" declared at cart_test.go:41; not run: And "the cart holds only books"
 ```
+
+Lines logged by setup, hooks, and steps keep the standard `file:line:` prefix
+and appear under the operation that logged them.
 
 ### Names and tags
 

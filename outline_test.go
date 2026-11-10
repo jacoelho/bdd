@@ -2,6 +2,7 @@ package bdd
 
 import (
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -94,6 +95,10 @@ func TestDisposedOutlineRegistersEveryExample(t *testing.T) {
 	out, err := runSelf(t, "BDD_DISPOSED_OUTLINE_SUBPROCESS=1", "-test.v")
 	if err != nil || !strings.Contains(string(out), "example-first") || !strings.Contains(string(out), "example-second") || strings.Contains(string(out), "disposed outline builder ran") {
 		t.Fatalf("disposed outline result = %v, output:\n%s", err, out)
+	}
+	// The skip message is attributed to the caller's file, not to the framework.
+	if !regexp.MustCompile(`(?m)^\s*outline_test\.go:\d+: bdd: Outline: all rows > Example: first pending: waiting for specification$`).Match(out) {
+		t.Fatalf("skip message is not attributed to the test file:\n%s", out)
 	}
 }
 

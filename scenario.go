@@ -15,6 +15,20 @@ type step[S any] struct {
 	fn     Step[S]
 }
 
+// narrate is the operation as a line of the scenario narrative. Background
+// is a label rather than a keyword that reads as part of the sentence, so it
+// takes a colon.
+func (st step[S]) narrate() string {
+	switch st.kind {
+	case kindBefore:
+		return "  Before hook"
+	case kindBackground:
+		return "  Background: " + st.text
+	default:
+		return "  " + string(st.kind) + " " + st.text
+	}
+}
+
 // label names the operation in diagnostics.
 func (st step[S]) label() string {
 	if st.kind == kindBefore {
